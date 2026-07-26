@@ -1,0 +1,384 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Download, Filter, Search, Sparkles } from "lucide-react";
+import { toast } from "sonner";
+import { AppCard } from "@/components/ui/AppCard";
+import { Button } from "@/components/ui/button";
+import { subscribeAttendance } from "@/services/attendance.service";
+import { subscribeEmployees } from "@/services/employee.service";
+import { subscribeSites } from "@/services/site.service";
+import { subscribeEmployeeSiteMappings } from "@/services/employeeSiteMapping.service";
+import { exportExcel, exportPDF, getAttendanceTrend, getDashboardSummary, type DashboardFilters } from "@/services/dashboard.service";
+import { isLateArrival, isEarlyLeaver } from "@/lib/attendanceMath";
+import type { AttendanceRecord, FaceStatus } from "@/types/attendance";
+import type { Employee } from "@/types/employee";
+import type { EmployeeSiteMapping } from "@/types/employeeSiteMapping";
+import type { Site } from "@/types/site";
+
+const defaultFilters: DashboardFilters = {
+  datePreset: "month",
+  startDate: "",
+  endDate: "",
+  siteId: "",
+  employeeId: "",
+  designation: "",
+  status: "",
+  client: "",
+  search: "",
+};
+
+const reportTypes = [
+  { value: "all", label: "All Records" },
+  { value: "employee", label: "Employee-wise Report" },
+  { value: "site", label: "Site-wise Report" },
+  { value: "late", label: "Late Arrival Report" },
+  { value: "early", label: "Early Leaver Report" },
+  { value: "absent", label: "Absent Report" },
+  { value: "present", label: "Present Report" },
+];
+
+const faceStatusFilters = [
+  { value: "", label: "All Face Status" },
+  { value: "verified", label: "Verified" },
+  { value: "unverified", label: "Unverified (needs review)" },
+  { value: "service_error", label: "Service Error (needs review)" },
+  { value: "not_attempted", label: "Not attempted" },
+];
+
+function formatWorkingHours(checkInTime?: string, checkOutTime?: string) {
+  if (!checkInTime || !checkOutTime) return "—";
+  const parse = (value: string) => {
+    const [hours, minutes] = value.split(":").map(Number);
+    return hours * 60 + minutes;
+  };
+  const minutes = parse(checkOutTime) - parse(checkInTime);
+  return minutes > 0 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : "—";
+}
+
+export default function ReportsWorkspace() {
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [mappings, setMappings] = useState<EmployeeSiteMapping[]>([]);
+  const [filters, setFilters] = useState<DashboardFilters>(defaultFilters);
+  const [reportType, setReportType] = useState(reportTypes[0].value);
+  const [faceStatusFilter, setFaceStatusFilter] = useState("");
+
+  useEffect(() => {
+    const unsubscribeAttendance = subscribeAttendance((next) => setRecords(next));
+    const unsubscribeEmployees = subscribeEmployees((next) => setEmployees(next));
+    const unsubscribeSites = subscribeSites((next) => setSites(next));
+    const unsubscribeMappings = subscribeEmployeeSiteMappings((next) => setMappings(next));
+
+    return () => {
+      unsubscribeAttendance();
+      unsubscribeEmployees();
+      unsubscribeSites();
+      unsubscribeMappings();
+    };
+  }, []);
+
+  const employeeMap = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
+
+  const summary = useMemo(() => getDashboardSummary(records, employees, sites, mappings, filters), [records, employees, sites, mappings, filters]);
+  const trend = useMemo(() => getAttendanceTrend(records, employees, filters), [records, employees, filters]);
+
+  const rows = useMemo(() => {
+    const filtered = records.filter((record) => {
+      const matchesEmployee = !filters.employeeId || record.employeeId === filters.employeeId;
+      const matchesSite = !filters.siteId || record.siteId === filters.siteId;
+      const matchesDesignation = !filters.designation || record.designation === filters.designation;
+      const matchesStatus = !filters.status || record.status === filters.status;
+      const matchesSearch =
+        !filters.search ||
+        [record.employeeName, record.employeeCode, record.siteName, record.siteCode].some((value) =>
+          value?.toLowerCase().includes(filters.search.toLowerCase())
+        );
+      const matchesDate =
+        (!filters.startDate && !filters.endDate) ||
+        (record.attendanceDate >= (filters.startDate || "") && record.attendanceDate <= (filters.endDate || record.attendanceDate));
+
+      const employee = employeeMap.get(record.employeeId);
+      const isLate = employee ? isLateArrival(record.checkInTime, employee.dailyStartTime) : false;
+      const isEarly = employee ? isEarlyLeaver(record.checkOutTime, employee.dailyEndTime) : false;
+
+      const matchesReportType =
+        reportType === "all" ||
+        reportType === "employee" ||
+        reportType === "site" ||
+        (reportType === "late" && isLate) ||
+        (reportType === "early" && isEarly) ||
+        (reportType === "absent" && record.status === "Absent") ||
+        (reportType === "present" && (record.status === "Checked In" || record.status === "Completed"));
+
+      const effectiveFaceStatus: string = record.checkInFaceStatus ?? "not_attempted";
+      const matchesFaceStatus = !faceStatusFilter || effectiveFaceStatus === faceStatusFilter;
+
+      return matchesEmployee && matchesSite && matchesDesignation && matchesStatus && matchesSearch && matchesDate && matchesReportType && matchesFaceStatus;
+    });
+
+    const sorted = [...filtered].sort((left, right) => right.attendanceDate.localeCompare(left.attendanceDate));
+
+    return sorted.map((record) => ({
+      attendanceDate: record.attendanceDate,
+      employeeCode: record.employeeCode,
+      employeeName: record.employeeName,
+      designation: record.designation,
+      site: record.siteName,
+      checkIn: record.checkInTime ?? "—",
+      checkOut: record.checkOutTime ?? "—",
+      workingHours: formatWorkingHours(record.checkInTime, record.checkOutTime),
+      lateArrival: employeeMap.get(record.employeeId) && isLateArrival(record.checkInTime, employeeMap.get(record.employeeId)!.dailyStartTime) ? "Yes" : "No",
+      earlyLeaver: employeeMap.get(record.employeeId) && isEarlyLeaver(record.checkOutTime, employeeMap.get(record.employeeId)!.dailyEndTime) ? "Yes" : "No",
+      faceStatus: (record.checkInFaceStatus ?? "not_attempted") as FaceStatus | "not_attempted",
+      attendanceStatus: record.status,
+    }));
+  }, [records, filters, reportType, faceStatusFilter, employeeMap]);
+
+  const headers = [
+    "Attendance Date",
+    "Employee Code",
+    "Employee Name",
+    "Designation",
+    "Site",
+    "Check-In",
+    "Check-Out",
+    "Working Hours",
+    "Late Arrival",
+    "Early Leaver",
+    "Face Status",
+    "Attendance Status",
+  ];
+
+  const tableRows = rows.map((row) =>
+    headers.map((header) => {
+      switch (header) {
+        case "Attendance Date":
+          return row.attendanceDate;
+        case "Employee Code":
+          return row.employeeCode;
+        case "Employee Name":
+          return row.employeeName;
+        case "Designation":
+          return row.designation;
+        case "Site":
+          return row.site;
+        case "Check-In":
+          return row.checkIn;
+        case "Check-Out":
+          return row.checkOut;
+        case "Working Hours":
+          return row.workingHours;
+        case "Late Arrival":
+          return row.lateArrival;
+        case "Early Leaver":
+          return row.earlyLeaver;
+        case "Face Status":
+          return row.faceStatus;
+        case "Attendance Status":
+          return row.attendanceStatus;
+        default:
+          return "";
+      }
+    })
+  );
+
+  const handleExport = async (format: "excel" | "pdf") => {
+    const payload = {
+      title: `${reportType} Report`,
+      rows,
+      headers,
+      reportType: `${reportType}-report`,
+      filters,
+    };
+
+    if (format === "excel") {
+      await exportExcel(payload);
+      toast.success("Exported filtered records to Excel");
+    } else {
+      await exportPDF(payload);
+      toast.success("Exported filtered records to PDF");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm uppercase tracking-[0.3em] text-slate-300">Reporting workspace</p>
+            <h1 className="text-2xl font-semibold sm:text-3xl">Reports</h1>
+            <p className="mt-1 text-sm text-slate-300">Live filters, table output, and Excel/PDF exports for payroll and compliance.</p>
+          </div>
+          <div className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-sm text-slate-100">
+            <span className="mr-2 inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" /> Live
+          </div>
+        </div>
+      </div>
+
+      <AppCard title="Report Filters" description="Filter by employee, site, date range, attendance status, and face verification status.">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-slate-700">Report Type</span>
+            <select value={reportType} onChange={(event) => setReportType(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+              {reportTypes.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-slate-700">Employee</span>
+            <select
+              value={filters.employeeId}
+              onChange={(event) => setFilters({ ...filters, employeeId: event.target.value })}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">All Employees</option>
+              {employees.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.employeeName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-slate-700">Site</span>
+            <select
+              value={filters.siteId}
+              onChange={(event) => setFilters({ ...filters, siteId: event.target.value })}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">All Sites</option>
+              {sites.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.siteName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-slate-700">Face Status</span>
+            <select value={faceStatusFilter} onChange={(event) => setFaceStatusFilter(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+              {faceStatusFilters.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-slate-700">Start Date</span>
+            <input
+              type="date"
+              value={filters.startDate}
+              onChange={(event) => setFilters({ ...filters, startDate: event.target.value })}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-slate-700">End Date</span>
+            <input
+              type="date"
+              value={filters.endDate}
+              onChange={(event) => setFilters({ ...filters, endDate: event.target.value })}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="space-y-2 text-sm sm:col-span-2 xl:col-span-2">
+            <span className="font-medium text-slate-700">Search</span>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={filters.search}
+                onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+                placeholder="Search by employee, code, site"
+                className="w-full border-0 bg-transparent text-sm outline-none"
+              />
+            </div>
+          </label>
+        </div>
+      </AppCard>
+
+      <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-sm text-slate-600">
+          <Filter className="h-4 w-4" />
+          <span>{rows.length} filtered records</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => handleExport("excel")} className="flex-1 sm:flex-none">
+            <Download className="mr-2 h-4 w-4" /> Export Excel
+          </Button>
+          <Button variant="outline" onClick={() => handleExport("pdf")} className="flex-1 sm:flex-none">
+            <Download className="mr-2 h-4 w-4" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
+        <AppCard title="Report Table" description="Attendance details for the active view.">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 text-left text-slate-600">
+                  {headers.map((header) => (
+                    <th key={header} className="px-3 py-2 whitespace-nowrap">
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length > 0 ? (
+                  tableRows.map((cells, index) => (
+                    <tr key={`${rows[index].employeeCode}-${rows[index].attendanceDate}-${index}`} className="border-t border-slate-200">
+                      {cells.map((cell, cellIndex) => (
+                        <td key={`${headers[cellIndex]}-${index}`} className="px-3 py-2 whitespace-nowrap">
+                          {String(cell ?? "")}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={headers.length} className="px-3 py-8 text-center text-slate-500">
+                      No records for the current filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </AppCard>
+
+        <AppCard title="Report Summary" description="Snapshot aligned to the current filters.">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-sky-600" />
+                <span className="text-sm text-slate-600">Present Today</span>
+              </div>
+              <span className="text-lg font-semibold text-slate-900">{summary.presentToday}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-rose-600" />
+                <span className="text-sm text-slate-600">Absent Today</span>
+              </div>
+              <span className="text-lg font-semibold text-slate-900">{summary.absentToday}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-amber-500" />
+                <span className="text-sm text-slate-600">Trend Points</span>
+              </div>
+              <span className="text-lg font-semibold text-slate-900">{trend.length}</span>
+            </div>
+          </div>
+        </AppCard>
+      </div>
+    </div>
+  );
+}
