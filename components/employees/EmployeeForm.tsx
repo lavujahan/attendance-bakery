@@ -179,14 +179,16 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
             render={({ field }) => (
               <Select value={field.value} onValueChange={field.onChange}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a site" />
+                  <SelectValue placeholder="Select a godown">
+                    {(value: string) => sites.find((site) => site.id === value)?.siteName}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {sites
                     .filter((site) => site.status === "Active")
                     .map((site) => (
                       <SelectItem key={site.id} value={site.id!}>
-                        {site.siteCode} — {site.siteName}
+                        {site.siteName}
                       </SelectItem>
                     ))}
                 </SelectContent>
