@@ -57,6 +57,7 @@ export async function updateSite(id: string, data: SiteFormData) {
       latitude: data.latitude,
       longitude: data.longitude,
       allowed_radius: data.allowedRadius,
+      geofence_enabled: data.geofenceEnabled,
       status: data.status,
     })
     .eq("id", id);
