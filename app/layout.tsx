@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Attendance",
-  description: "Site attendance with face verification",
+  description: "Godown attendance with face verification",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

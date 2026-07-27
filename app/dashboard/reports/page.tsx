@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import ReportsWorkspace from "@/components/reports/ReportsWorkspace";
 
 export default function ReportsPage() {
-  return <ReportsWorkspace />;
+  return (
+    <Suspense fallback={null}>
+      <ReportsWorkspace />
+    </Suspense>
+  );
 }

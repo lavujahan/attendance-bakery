@@ -49,7 +49,7 @@ export default function GPSLocationPicker({ value, onChange }: GPSLocationPicker
     <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="font-medium text-slate-900">Site Location</h3>
+          <h3 className="font-medium text-slate-900">Godown Location</h3>
           <p className="text-sm text-slate-500">GPS coordinates are captured automatically for attendance validation.</p>
         </div>
         <Button type="button" variant="outline" onClick={captureLocation} disabled={loading} className="w-full sm:w-auto">
@@ -80,7 +80,7 @@ export default function GPSLocationPicker({ value, onChange }: GPSLocationPicker
 function getGeoErrorMessage(error: GeolocationPositionError) {
   switch (error.code) {
     case error.PERMISSION_DENIED:
-      return "Location permission is required to create a site.";
+      return "Location permission is required to create a godown.";
     case error.POSITION_UNAVAILABLE:
       return "Location information is unavailable at the moment.";
     case error.TIMEOUT:

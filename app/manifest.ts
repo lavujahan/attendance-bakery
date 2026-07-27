@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Site Attendance",
+    name: "Godown Attendance",
     short_name: "Attendance",
-    description: "Site attendance kiosk with face verification",
+    description: "Godown attendance kiosk with face verification",
     start_url: "/attendance",
     scope: "/attendance",
     display: "standalone",

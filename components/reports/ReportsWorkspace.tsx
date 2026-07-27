@@ -1,19 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Filter, Search, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { ArrowLeft, Download, Filter, SlidersHorizontal, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { AppCard } from "@/components/ui/AppCard";
 import { Button } from "@/components/ui/button";
 import { subscribeAttendance } from "@/services/attendance.service";
 import { subscribeEmployees } from "@/services/employee.service";
 import { subscribeSites } from "@/services/site.service";
-import { subscribeEmployeeSiteMappings } from "@/services/employeeSiteMapping.service";
 import { exportExcel, exportPDF, getAttendanceTrend, getDashboardSummary, type DashboardFilters } from "@/services/dashboard.service";
 import { isLateArrival, isEarlyLeaver } from "@/lib/attendanceMath";
 import type { AttendanceRecord, FaceStatus } from "@/types/attendance";
 import type { Employee } from "@/types/employee";
-import type { EmployeeSiteMapping } from "@/types/employeeSiteMapping";
 import type { Site } from "@/types/site";
 
 const defaultFilters: DashboardFilters = {
@@ -24,14 +24,13 @@ const defaultFilters: DashboardFilters = {
   employeeId: "",
   designation: "",
   status: "",
-  client: "",
   search: "",
 };
 
 const reportTypes = [
   { value: "all", label: "All Records" },
   { value: "employee", label: "Employee-wise Report" },
-  { value: "site", label: "Site-wise Report" },
+  { value: "site", label: "Godown-wise Report" },
   { value: "late", label: "Late Arrival Report" },
   { value: "early", label: "Early Leaver Report" },
   { value: "absent", label: "Absent Report" },
@@ -56,32 +55,43 @@ function formatWorkingHours(checkInTime?: string, checkOutTime?: string) {
   return minutes > 0 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : "—";
 }
 
-export default function ReportsWorkspace() {
+// Keyed by the raw query string from the parent below, so navigating here again from
+// a dashboard card (same route, different params) remounts this instead of leaving
+// stale reportType/filters state behind -- client-side nav to the same route doesn't
+// otherwise remount, and syncing via a setState-in-effect is its own footgun.
+function ReportsWorkspaceInner({ searchParams }: { searchParams: URLSearchParams }) {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
-  const [mappings, setMappings] = useState<EmployeeSiteMapping[]>([]);
-  const [filters, setFilters] = useState<DashboardFilters>(defaultFilters);
-  const [reportType, setReportType] = useState(reportTypes[0].value);
+  const [filters, setFilters] = useState<DashboardFilters>(() => ({
+    ...defaultFilters,
+    siteId: searchParams.get("siteId") || defaultFilters.siteId,
+    datePreset: (searchParams.get("datePreset") as DashboardFilters["datePreset"]) || defaultFilters.datePreset,
+  }));
+  const [reportType, setReportType] = useState(() => searchParams.get("type") || reportTypes[0].value);
   const [faceStatusFilter, setFaceStatusFilter] = useState("");
+
+  // Arriving from a dashboard card already implies the report type/site/date -- start
+  // with the filters panel collapsed so the drill-through reads as a direct answer,
+  // not another form to fill in. Still reachable via the toggle below.
+  const cameFromDashboard = searchParams.get("type") !== null;
+  const [showFilters, setShowFilters] = useState(!cameFromDashboard);
 
   useEffect(() => {
     const unsubscribeAttendance = subscribeAttendance((next) => setRecords(next));
     const unsubscribeEmployees = subscribeEmployees((next) => setEmployees(next));
     const unsubscribeSites = subscribeSites((next) => setSites(next));
-    const unsubscribeMappings = subscribeEmployeeSiteMappings((next) => setMappings(next));
 
     return () => {
       unsubscribeAttendance();
       unsubscribeEmployees();
       unsubscribeSites();
-      unsubscribeMappings();
     };
   }, []);
 
   const employeeMap = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
 
-  const summary = useMemo(() => getDashboardSummary(records, employees, sites, mappings, filters), [records, employees, sites, mappings, filters]);
+  const summary = useMemo(() => getDashboardSummary(records, employees, sites, filters), [records, employees, sites, filters]);
   const trend = useMemo(() => getAttendanceTrend(records, employees, filters), [records, employees, filters]);
 
   const rows = useMemo(() => {
@@ -122,7 +132,7 @@ export default function ReportsWorkspace() {
 
     return sorted.map((record) => ({
       attendanceDate: record.attendanceDate,
-      employeeCode: record.employeeCode,
+      serialNo: employeeMap.get(record.employeeId)?.serialNo ?? "—",
       employeeName: record.employeeName,
       designation: record.designation,
       site: record.siteName,
@@ -138,10 +148,10 @@ export default function ReportsWorkspace() {
 
   const headers = [
     "Attendance Date",
-    "Employee Code",
+    "Serial No",
     "Employee Name",
     "Designation",
-    "Site",
+    "Godown",
     "Check-In",
     "Check-Out",
     "Working Hours",
@@ -156,13 +166,13 @@ export default function ReportsWorkspace() {
       switch (header) {
         case "Attendance Date":
           return row.attendanceDate;
-        case "Employee Code":
-          return row.employeeCode;
+        case "Serial No":
+          return row.serialNo;
         case "Employee Name":
           return row.employeeName;
         case "Designation":
           return row.designation;
-        case "Site":
+        case "Godown":
           return row.site;
         case "Check-In":
           return row.checkIn;
@@ -184,6 +194,9 @@ export default function ReportsWorkspace() {
     })
   );
 
+  const reportTypeLabel = reportTypes.find((item) => item.value === reportType)?.label ?? reportTypes[0].label;
+  const selectedSiteName = filters.siteId ? sites.find((site) => site.id === filters.siteId)?.siteName ?? "—" : "All Godowns";
+
   const handleExport = async (format: "excel" | "pdf") => {
     const payload = {
       title: `${reportType} Report`,
@@ -204,20 +217,26 @@ export default function ReportsWorkspace() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm uppercase tracking-[0.3em] text-slate-300">Reporting workspace</p>
-            <h1 className="text-2xl font-semibold sm:text-3xl">Reports</h1>
-            <p className="mt-1 text-sm text-slate-300">Live filters, table output, and Excel/PDF exports for payroll and compliance.</p>
-          </div>
-          <div className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-sm text-slate-100">
-            <span className="mr-2 inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" /> Live
-          </div>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+        </Link>
+
+        <Button variant="outline" size="sm" onClick={() => setShowFilters((prev) => !prev)}>
+          <SlidersHorizontal className="mr-2 h-4 w-4" /> {showFilters ? "Hide Filters" : "Show Filters"}
+        </Button>
       </div>
 
-      <AppCard title="Report Filters" description="Filter by employee, site, date range, attendance status, and face verification status.">
+      <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
+        <h1 className="text-2xl font-semibold sm:text-3xl">{reportTypeLabel}</h1>
+        <p className="mt-1 text-sm text-slate-300">Godown: {selectedSiteName}</p>
+      </div>
+
+      {showFilters && (
+        <AppCard title="Report Filters" description="Filter by employee, site, date range, attendance status, and face verification status.">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <label className="space-y-2 text-sm">
             <span className="font-medium text-slate-700">Report Type</span>
@@ -245,13 +264,13 @@ export default function ReportsWorkspace() {
             </select>
           </label>
           <label className="space-y-2 text-sm">
-            <span className="font-medium text-slate-700">Site</span>
+            <span className="font-medium text-slate-700">Godown</span>
             <select
               value={filters.siteId}
               onChange={(event) => setFilters({ ...filters, siteId: event.target.value })}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
             >
-              <option value="">All Sites</option>
+              <option value="">All Godowns</option>
               {sites.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.siteName}
@@ -300,7 +319,8 @@ export default function ReportsWorkspace() {
             </div>
           </label>
         </div>
-      </AppCard>
+        </AppCard>
+      )}
 
       <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 text-sm text-slate-600">
@@ -333,7 +353,7 @@ export default function ReportsWorkspace() {
               <tbody>
                 {rows.length > 0 ? (
                   tableRows.map((cells, index) => (
-                    <tr key={`${rows[index].employeeCode}-${rows[index].attendanceDate}-${index}`} className="border-t border-slate-200">
+                    <tr key={`${rows[index].serialNo}-${rows[index].attendanceDate}-${index}`} className="border-t border-slate-200">
                       {cells.map((cell, cellIndex) => (
                         <td key={`${headers[cellIndex]}-${index}`} className="px-3 py-2 whitespace-nowrap">
                           {String(cell ?? "")}
@@ -381,4 +401,9 @@ export default function ReportsWorkspace() {
       </div>
     </div>
   );
+}
+
+export default function ReportsWorkspace() {
+  const searchParams = useSearchParams();
+  return <ReportsWorkspaceInner key={searchParams.toString()} searchParams={searchParams} />;
 }

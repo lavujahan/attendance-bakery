@@ -21,10 +21,10 @@ export default function DeleteSiteDialog({ open, onOpenChange, onConfirm, deleti
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Delete Site</DialogTitle>
+          <DialogTitle>Delete Godown</DialogTitle>
         </DialogHeader>
 
-        <p className="text-sm text-gray-600">Are you sure you want to delete this site?</p>
+        <p className="text-sm text-gray-600">Are you sure you want to delete this godown?</p>
 
         <DialogFooter className="mt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>

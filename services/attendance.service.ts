@@ -91,8 +91,11 @@ export function subscribeAttendance(callback: (records: AttendanceRecord[]) => v
 
   void refetch();
 
+  // Unique per call -- see the comment in site.service.ts's subscribeSites for why a
+  // shared constant channel name breaks once more than one subscriber can be mounted
+  // at the same time.
   const channel = supabaseBrowser
-    .channel("attendance-changes")
+    .channel(`attendance-changes-${crypto.randomUUID()}`)
     .on("postgres_changes", { event: "*", schema: "public", table: TABLE }, () => void refetch())
     .subscribe();
 

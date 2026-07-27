@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiCheck } from "react-icons/fi";
 import { Button } from "@/components/ui/button";
 import CameraCapture from "@/components/attendance/CameraCapture";
@@ -22,7 +22,7 @@ type ResultInfo = {
   responseSeconds: number;
 };
 
-const IDLE_MESSAGE = "Enter your Attendance ID to begin.";
+const IDLE_MESSAGE = "Enter your Serial No to begin.";
 
 export default function AttendancePortalPage() {
   const [attendanceId, setAttendanceId] = useState("");
@@ -66,7 +66,7 @@ export default function AttendancePortalPage() {
     }
   }, [statusType]);
 
-  const resetProcess = () => {
+  const resetProcess = useCallback(() => {
     setProcessFinished(false);
     setEmployee(null);
     setSite(null);
@@ -79,7 +79,13 @@ export default function AttendancePortalPage() {
     setStatusMessage(IDLE_MESSAGE);
     setStatusType("info");
     setStage("idle");
-  };
+  }, []);
+
+  useEffect(() => {
+    if (stage !== "complete") return;
+    const timer = window.setTimeout(resetProcess, 3000);
+    return () => window.clearTimeout(timer);
+  }, [stage, resetProcess]);
 
   const runGateCheck = async (id: string) => {
     setStatusMessage("Checking your details...");
@@ -90,7 +96,7 @@ export default function AttendancePortalPage() {
       const gate = await checkKioskGates(id);
 
       if (gate.outcome === "invalid_id") {
-        setStatusMessage("Invalid Attendance ID.");
+        setStatusMessage("Invalid Serial No.");
         setStatusType("error");
         setStage("failed");
         return;
@@ -108,7 +114,7 @@ export default function AttendancePortalPage() {
         return;
       }
       if (gate.outcome === "no_site_assignment") {
-        setStatusMessage("No site assigned for today.");
+        setStatusMessage("No godown assigned. Contact HR.");
         setStatusType("error");
         setStage("failed");
         return;
@@ -179,7 +185,7 @@ export default function AttendancePortalPage() {
             );
 
             if (distance > Number(gate.site.allowedRadius)) {
-              setStatusMessage("You are not near the assigned site location.");
+              setStatusMessage("You are not near the assigned godown location.");
               setStatusType("error");
               setStage("failed");
               return;
@@ -274,11 +280,11 @@ export default function AttendancePortalPage() {
       setAttendanceId(digit);
       return;
     }
-    if (attendanceId.length >= 5) return;
+    if (attendanceId.length >= 2) return;
 
     const next = attendanceId + digit;
     setAttendanceId(next);
-    if (next.length === 5) {
+    if (next.length === 2) {
       void runGateCheck(next);
     }
   };
@@ -298,18 +304,26 @@ export default function AttendancePortalPage() {
       <div className="mx-auto flex min-h-[calc(100vh-48px)] w-full items-center justify-center">
         <div className="w-full max-w-[100%] rounded-[20px] bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] sm:max-w-[520px] lg:max-w-[560px]">
           <div className="space-y-6">
-            <div className="text-left">
-              <p className="text-sm font-semibold uppercase tracking-[0.26em] text-slate-500">Site Attendance</p>
-              <p className="mt-1 text-sm font-medium text-slate-500">{dateLabel}</p>
-              <p className="text-lg font-bold text-slate-900">{timeLabel}</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-left">
+                <p className="text-sm font-medium text-slate-500">{dateLabel}</p>
+                <p className="text-lg font-bold text-slate-900">{timeLabel}</p>
+              </div>
+
+              {employee && (
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-slate-900">{employee.employeeName}</p>
+                  <p className="text-xs text-slate-500">Serial No: {employee.serialNo}</p>
+                </div>
+              )}
             </div>
 
             {showEntryScreen && (
               <div className="space-y-5">
-                <p className="text-center text-base font-bold uppercase tracking-wide text-slate-700">Attendance ID</p>
+                <p className="text-center text-base font-bold uppercase tracking-wide text-slate-700">Serial No</p>
 
-                <div className="mx-auto flex h-20 w-full max-w-[320px] items-center justify-center rounded-2xl border border-slate-300 bg-white text-3xl font-extrabold tracking-[0.5em] text-slate-900 shadow-sm">
-                  {attendanceId ? attendanceId : <span className="text-slate-300">• • • • •</span>}
+                <div className="mx-auto flex h-20 w-full max-w-[180px] items-center justify-center rounded-2xl border border-slate-300 bg-white text-3xl font-extrabold tracking-[0.5em] text-slate-900 shadow-sm">
+                  {attendanceId ? attendanceId : <span className="text-slate-300">• •</span>}
                 </div>
 
                 <Keypad onDigit={handleDigit} onBackspace={handleBackspace} onReset={resetProcess} />
@@ -334,8 +348,8 @@ export default function AttendancePortalPage() {
 
                   <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
                     <div className="flex items-center gap-3 text-slate-700">
-                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600">SITE</span>
-                      <span className="text-sm font-semibold">Assigned Site</span>
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-600">GODOWN</span>
+                      <span className="text-sm font-semibold">Assigned Godown</span>
                     </div>
                     <p className="mt-4 text-xl font-semibold text-slate-900">{site?.siteName || "Waiting for assignment..."}</p>
                   </div>
@@ -355,8 +369,8 @@ export default function AttendancePortalPage() {
 
             {showResultCard && result && (
               <div className="space-y-5 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-                  <FiCheck className="h-8 w-8 text-emerald-600" />
+                <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-emerald-100">
+                  <FiCheck className="h-14 w-14 text-emerald-600" />
                 </div>
 
                 <p className="text-sm font-medium text-slate-500">
@@ -368,7 +382,7 @@ export default function AttendancePortalPage() {
 
                 <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4 text-left text-sm text-slate-600">
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-slate-500">Site</span>
+                    <span className="text-slate-500">Godown</span>
                     <span className="font-semibold text-slate-900">{site?.siteName ?? "—"}</span>
                   </div>
                   <div className="flex items-center justify-between py-1">

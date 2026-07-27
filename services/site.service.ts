@@ -8,7 +8,6 @@ type SiteRow = {
   id: string;
   site_code: string;
   site_name: string;
-  client_name: string;
   site_incharge: string;
   latitude: number;
   longitude: number;
@@ -24,7 +23,6 @@ function mapRow(row: SiteRow): Site {
     id: row.id,
     siteCode: row.site_code,
     siteName: row.site_name,
-    clientName: row.client_name,
     siteIncharge: row.site_incharge,
     latitude: row.latitude,
     longitude: row.longitude,
@@ -39,7 +37,6 @@ function mapRow(row: SiteRow): Site {
 export async function addSite(data: SiteFormData) {
   const { error } = await supabaseBrowser.from(TABLE).insert({
     site_name: data.siteName,
-    client_name: data.clientName,
     site_incharge: data.siteIncharge,
     latitude: data.latitude,
     longitude: data.longitude,
@@ -56,7 +53,6 @@ export async function updateSite(id: string, data: SiteFormData) {
     .from(TABLE)
     .update({
       site_name: data.siteName,
-      client_name: data.clientName,
       site_incharge: data.siteIncharge,
       latitude: data.latitude,
       longitude: data.longitude,
@@ -90,8 +86,13 @@ export function subscribeSites(callback: (sites: Site[]) => void) {
 
   void refetch();
 
+  // Unique per call -- Supabase reuses a channel object for a repeated topic name, and
+  // throws if you try to attach a second `.on()` listener to an already-subscribed
+  // channel. Sites are now subscribed to from multiple components mounted at once
+  // (e.g. EmployeeTable + EmployeeForm while the Add/Edit dialog is open), so a shared
+  // constant name collides.
   const channel = supabaseBrowser
-    .channel("sites-changes")
+    .channel(`sites-changes-${crypto.randomUUID()}`)
     .on("postgres_changes", { event: "*", schema: "public", table: TABLE }, () => void refetch())
     .subscribe();
 

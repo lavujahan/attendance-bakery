@@ -22,11 +22,11 @@ export default function SiteDialog({ site, trigger }: SiteDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={trigger ?? <Button type="button">Add Site</Button>} />
+      <DialogTrigger render={trigger ?? <Button type="button">Add Godown</Button>} />
 
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{site ? "Edit Site" : "Add Site"}</DialogTitle>
+          <DialogTitle>{site ? "Edit Godown" : "Add Godown"}</DialogTitle>
         </DialogHeader>
 
         <SiteForm site={site} onSuccess={() => setOpen(false)} />

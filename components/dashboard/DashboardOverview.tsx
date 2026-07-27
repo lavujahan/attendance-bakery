@@ -6,14 +6,12 @@ import DashboardFilters from "@/components/dashboard/DashboardFilters";
 import { subscribeAttendance } from "@/services/attendance.service";
 import { subscribeEmployees } from "@/services/employee.service";
 import { subscribeSites } from "@/services/site.service";
-import { subscribeEmployeeSiteMappings } from "@/services/employeeSiteMapping.service";
 import {
   getDashboardSummary,
   type DashboardFilters as DashboardFilterState,
 } from "@/services/dashboard.service";
 import type { AttendanceRecord } from "@/types/attendance";
 import type { Employee } from "@/types/employee";
-import type { EmployeeSiteMapping } from "@/types/employeeSiteMapping";
 import type { Site } from "@/types/site";
 
 const defaultFilters: DashboardFilterState = {
@@ -24,32 +22,28 @@ const defaultFilters: DashboardFilterState = {
   employeeId: "",
   designation: "",
   status: "",
-  client: "",
   search: "",
 };
 
 export default function DashboardOverview() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
-  const [mappings, setMappings] = useState<EmployeeSiteMapping[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [filters, setFilters] = useState<DashboardFilterState>(defaultFilters);
 
   useEffect(() => {
     const unsubEmployees = subscribeEmployees((next) => setEmployees(next));
     const unsubSites = subscribeSites((next) => setSites(next));
-    const unsubMappings = subscribeEmployeeSiteMappings((next) => setMappings(next));
     const unsubAttendance = subscribeAttendance((next) => setRecords(next));
 
     return () => {
       unsubEmployees();
       unsubSites();
-      unsubMappings();
       unsubAttendance();
     };
   }, []);
 
-  const summary = useMemo(() => getDashboardSummary(records, employees, sites, mappings, filters), [records, employees, sites, mappings, filters]);
+  const summary = useMemo(() => getDashboardSummary(records, employees, sites, filters), [records, employees, sites, filters]);
 
   return (
     <div className="space-y-6">
@@ -58,7 +52,7 @@ export default function DashboardOverview() {
           <div>
             <p className="text-sm uppercase tracking-[0.3em] text-slate-300">Realtime operations</p>
             <h1 className="text-2xl font-semibold sm:text-3xl">Dashboard</h1>
-            <p className="mt-1 text-sm text-slate-300">Live insights for employees, sites, mappings, and attendance.</p>
+            <p className="mt-1 text-sm text-slate-300">Live insights for employees, godowns, and attendance.</p>
           </div>
           <div className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-sm text-slate-100">
             <span className="mr-2 inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" /> Live
@@ -68,7 +62,7 @@ export default function DashboardOverview() {
 
       <DashboardFilters filters={filters} sites={sites} onFiltersChange={setFilters} />
 
-      <SummaryCards summary={summary} />
+      <SummaryCards summary={summary} siteId={filters.siteId} />
     </div>
   );
 }

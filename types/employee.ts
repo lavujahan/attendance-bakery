@@ -3,8 +3,7 @@ export interface Employee {
   employeeCode: string;
   employeeName: string;
   mobileNumber: string;
-  phonePrefix: string;
-  email: string;
+  serialNo: number;
   gender: "Male" | "Female" | "Other";
   designation: string;
   joiningDate: string;
@@ -12,6 +11,8 @@ export interface Employee {
   dailyEndTime: string; // "HH:MM:SS", drives per-employee early-leaver calculation
   faceEnrolled: boolean;
   status: "Active" | "Inactive";
+  salaryPerHour: number;
+  siteId?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }

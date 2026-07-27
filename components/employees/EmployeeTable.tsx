@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FiEdit2, FiTrash2, FiSearch } from "react-icons/fi";
-import { deleteEmployee, subscribeEmployees } from "@/services/employee.service";
+import { FiDownload, FiEdit2, FiTrash2, FiSearch } from "react-icons/fi";
+import { deleteEmployee, exportEmployeesPDF, subscribeEmployees } from "@/services/employee.service";
+import { subscribeSites } from "@/services/site.service";
 import { Employee } from "@/types/employee";
+import { Site } from "@/types/site";
 import { toast } from "sonner";
 import EmployeeDialog from "./EmployeeDialog";
 import {
@@ -18,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 
 export default function EmployeeTable() {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
@@ -33,6 +36,17 @@ export default function EmployeeTable() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeSites((data) => setSites(data));
+    return () => unsubscribe();
+  }, []);
+
+  const siteMap = useMemo(() => {
+    const map = new Map<string, Site>();
+    sites.forEach((site) => site.id && map.set(site.id, site));
+    return map;
+  }, [sites]);
+
   const filteredEmployees = useMemo(() => {
     const value = search.toLowerCase().trim();
 
@@ -40,8 +54,7 @@ export default function EmployeeTable() {
       (emp) =>
         emp.employeeCode?.toLowerCase().includes(value) ||
         emp.employeeName?.toLowerCase().includes(value) ||
-        emp.mobileNumber?.includes(value) ||
-        emp.email?.toLowerCase().includes(value)
+        emp.mobileNumber?.includes(value)
     );
   }, [employees, search]);
 
@@ -81,14 +94,25 @@ export default function EmployeeTable() {
 
   return (
     <div className="space-y-4">
-      <div className="relative w-full max-w-md">
-        <FiSearch className="absolute left-3 top-3 text-gray-400" />
-        <input
-          className="w-full rounded-lg border border-slate-200 pl-10 pr-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Search employee..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full max-w-md">
+          <FiSearch className="absolute left-3 top-3 text-gray-400" />
+          <input
+            className="w-full rounded-lg border border-slate-200 pl-10 pr-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Search employee..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full sm:w-auto"
+          onClick={() => exportEmployeesPDF(filteredEmployees, sites)}
+        >
+          <FiDownload className="mr-2" /> Download PDF
+        </Button>
       </div>
 
       {/* Mobile: stacked cards */}
@@ -103,7 +127,6 @@ export default function EmployeeTable() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-semibold text-slate-900">{employee.employeeName}</p>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">{employee.employeeCode}</p>
                 </div>
                 <span
                   className={`rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -114,8 +137,11 @@ export default function EmployeeTable() {
                 </span>
               </div>
               <div className="mt-3 space-y-1 text-sm text-slate-600">
+                <p>Serial No: {employee.serialNo}</p>
                 <p>{employee.mobileNumber}</p>
                 <p>{employee.designation}</p>
+                <p>Salary/hr: {employee.salaryPerHour.toFixed(2)}</p>
+                <p>Godown: {(employee.siteId && siteMap.get(employee.siteId)?.siteName) || "—"}</p>
                 <p>Start time: {employee.dailyStartTime?.slice(0, 5)}</p>
                 <p>End time: {employee.dailyEndTime?.slice(0, 5)}</p>
               </div>
@@ -150,10 +176,12 @@ export default function EmployeeTable() {
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
             <tr>
-              <th className="p-3 text-left">Code</th>
+              <th className="p-3 text-left">Serial No</th>
               <th className="p-3 text-left">Employee Name</th>
               <th className="p-3 text-left">Mobile</th>
               <th className="p-3 text-left">Designation</th>
+              <th className="p-3 text-left">Salary/hr</th>
+              <th className="p-3 text-left">Godown</th>
               <th className="p-3 text-left">Start Time</th>
               <th className="p-3 text-left">End Time</th>
               <th className="p-3 text-center">Face</th>
@@ -164,17 +192,19 @@ export default function EmployeeTable() {
           <tbody>
             {filteredEmployees.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-6 text-center text-gray-500">
+                <td colSpan={11} className="p-6 text-center text-gray-500">
                   No employees found.
                 </td>
               </tr>
             ) : (
               filteredEmployees.map((employee) => (
                 <tr key={employee.id} className="border-t hover:bg-gray-50">
-                  <td className="p-3 font-medium">{employee.employeeCode}</td>
+                  <td className="p-3 font-medium">{employee.serialNo}</td>
                   <td className="p-3 font-medium text-slate-900">{employee.employeeName}</td>
                   <td className="p-3">{employee.mobileNumber}</td>
                   <td className="p-3">{employee.designation}</td>
+                  <td className="p-3">{employee.salaryPerHour.toFixed(2)}</td>
+                  <td className="p-3">{(employee.siteId && siteMap.get(employee.siteId)?.siteName) || "—"}</td>
                   <td className="p-3">{employee.dailyStartTime?.slice(0, 5)}</td>
                   <td className="p-3">{employee.dailyEndTime?.slice(0, 5)}</td>
                   <td className="p-3 text-center">{faceBadge(employee)}</td>

@@ -7,8 +7,6 @@ export const employeeSchema = z.object({
     .string()
     .regex(/^[0-9]{10}$/, "Enter a valid mobile number"),
 
-  email: z.string().email("Invalid email").optional().or(z.literal("")),
-
   gender: z.enum(["Male", "Female", "Other"]),
 
   designation: z.string().min(2, "Designation is required"),
@@ -24,6 +22,10 @@ export const employeeSchema = z.object({
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Enter a valid time (HH:MM)"),
 
   status: z.enum(["Active", "Inactive"]),
+
+  salaryPerHour: z.number().min(0, "Salary per hour must be 0 or more"),
+
+  siteId: z.string().min(1, "Godown is required"),
 });
 
 export type EmployeeFormData = z.infer<typeof employeeSchema>;

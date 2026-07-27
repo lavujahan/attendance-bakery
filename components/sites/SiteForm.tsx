@@ -44,7 +44,6 @@ export default function SiteForm({ site, onSuccess }: Props) {
     resolver: zodResolver(siteSchema) as Resolver<SiteFormData>,
     defaultValues: {
       siteName: site?.siteName || "",
-      clientName: site?.clientName || "",
       siteIncharge: site?.siteIncharge || "",
       latitude: site?.latitude ?? 0,
       longitude: site?.longitude ?? 0,
@@ -61,7 +60,7 @@ export default function SiteForm({ site, onSuccess }: Props) {
       setLoading(true);
 
       if (gpsValue.latitude === null || gpsValue.longitude === null) {
-        toast.error("Location is required to create a site.");
+        toast.error("Location is required to create a godown.");
         return;
       }
 
@@ -69,10 +68,10 @@ export default function SiteForm({ site, onSuccess }: Props) {
 
       if (site?.id) {
         await updateSite(site.id, payload);
-        toast.success("Site Updated Successfully");
+        toast.success("Godown Updated Successfully");
       } else {
         await addSite(payload);
-        toast.success("Site Added Successfully");
+        toast.success("Godown Added Successfully");
       }
 
       reset();
@@ -89,22 +88,16 @@ export default function SiteForm({ site, onSuccess }: Props) {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Site Name *</Label>
-          <Input placeholder="Enter site name" {...register("siteName")} />
+          <Label>Godown Name *</Label>
+          <Input placeholder="Enter godown name" {...register("siteName")} />
           {errors.siteName && <p className="text-sm text-red-500">{errors.siteName.message}</p>}
         </div>
 
         <div className="space-y-2">
-          <Label>Client Name *</Label>
-          <Input placeholder="Enter client name" {...register("clientName")} />
-          {errors.clientName && <p className="text-sm text-red-500">{errors.clientName.message}</p>}
+          <Label>Godown Incharge *</Label>
+          <Input placeholder="Enter godown incharge" {...register("siteIncharge")} />
+          {errors.siteIncharge && <p className="text-sm text-red-500">{errors.siteIncharge.message}</p>}
         </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Site Incharge *</Label>
-        <Input placeholder="Enter site incharge" {...register("siteIncharge")} />
-        {errors.siteIncharge && <p className="text-sm text-red-500">{errors.siteIncharge.message}</p>}
       </div>
 
       <GPSLocationPicker value={gpsValue} onChange={setGpsValue} />
@@ -142,7 +135,7 @@ export default function SiteForm({ site, onSuccess }: Props) {
               </Select>
             )}
           />
-          <p className="text-xs text-slate-500">When disabled, GPS location is not checked at check-in/check-out for this site.</p>
+          <p className="text-xs text-slate-500">When disabled, GPS location is not checked at check-in/check-out for this godown.</p>
         </div>
       </div>
 
@@ -169,7 +162,7 @@ export default function SiteForm({ site, onSuccess }: Props) {
 
       <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
         <Button type="submit" disabled={loading} className="w-full sm:w-auto">
-          {loading ? "Saving..." : site ? "Update Site" : "Save Site"}
+          {loading ? "Saving..." : site ? "Update Godown" : "Save Godown"}
         </Button>
       </div>
     </form>

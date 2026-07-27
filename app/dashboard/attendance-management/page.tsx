@@ -8,11 +8,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { getTodayDate } from "@/lib/attendanceMath";
 import { deleteAttendance, subscribeAttendance, updateAttendance } from "@/services/attendance.service";
 import { subscribeEmployees } from "@/services/employee.service";
-import { subscribeEmployeeSiteMappings } from "@/services/employeeSiteMapping.service";
 import { subscribeSites } from "@/services/site.service";
 import type { AttendanceRecord, FaceStatus } from "@/types/attendance";
 import type { Employee } from "@/types/employee";
-import type { EmployeeSiteMapping } from "@/types/employeeSiteMapping";
 import type { Site } from "@/types/site";
 import { isLateArrival, minutesLate, isEarlyLeaver, minutesEarly } from "@/lib/attendanceMath";
 
@@ -25,18 +23,16 @@ interface AttendanceRow {
   employeeId: string;
   employeeCode: string;
   employeeName: string;
+  serialNo?: number;
   designation: string;
   mobileNumber: string;
   siteId: string;
   siteCode: string;
   siteName: string;
-  clientName: string;
   checkInTime?: string;
   checkOutTime?: string;
   totalHours: string;
   attendanceStatus: AttendanceDisplayStatus;
-  gpsStatus: string;
-  distance: string;
   remarks: string;
   isLate: boolean;
   minutesLate: number | null;
@@ -135,28 +131,6 @@ function toAttendanceStatus(record: AttendanceRecord, employee?: Employee): Atte
   return "Present";
 }
 
-function getGpsStatus(record: AttendanceRecord) {
-  if (record.checkInLatitude && record.checkInLongitude) return "Captured";
-  return "Pending";
-}
-
-function calculateDistanceMeters(record: AttendanceRecord, site?: Site) {
-  if (!site || !record.checkInLatitude || !record.checkInLongitude || !site.latitude || !site.longitude) return "—";
-
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const radius = 6371000;
-  const deltaLatitude = toRad(site.latitude - record.checkInLatitude);
-  const deltaLongitude = toRad(site.longitude - record.checkInLongitude);
-  const latitude1 = toRad(record.checkInLatitude);
-  const latitude2 = toRad(site.latitude);
-
-  const a =
-    Math.sin(deltaLatitude / 2) ** 2 + Math.cos(latitude1) * Math.cos(latitude2) * Math.sin(deltaLongitude / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = radius * c;
-  return `${Math.round(distance)} m`;
-}
-
 function getRemarks(record: AttendanceRecord, status: AttendanceDisplayStatus, totalHours: string) {
   if (record.remarks && record.remarks.trim()) return record.remarks;
   if (status === "Working") return "Currently working";
@@ -193,7 +167,6 @@ export default function AttendanceManagementPage() {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
-  const [mappings, setMappings] = useState<EmployeeSiteMapping[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [selectedSiteId, setSelectedSiteId] = useState("");
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
@@ -211,13 +184,11 @@ export default function AttendanceManagementPage() {
     const unsubscribeAttendance = subscribeAttendance((next) => setAttendanceRecords(next));
     const unsubscribeEmployees = subscribeEmployees((next) => setEmployees(next));
     const unsubscribeSites = subscribeSites((next) => setSites(next));
-    const unsubscribeMappings = subscribeEmployeeSiteMappings((next) => setMappings(next));
 
     return () => {
       unsubscribeAttendance();
       unsubscribeEmployees();
       unsubscribeSites();
-      unsubscribeMappings();
     };
   }, []);
 
@@ -238,19 +209,13 @@ export default function AttendanceManagementPage() {
     [attendanceRecords, selectedDate]
   );
 
-  const assignedEmployeesForDate = useMemo(() => {
-    const activeMappings = mappings.filter(
-      (mapping) => mapping.status === "Active" && selectedDate >= mapping.fromDate && selectedDate <= mapping.toDate
-    );
-    return activeMappings
-      .map((mapping) => ({ mapping, employee: employeeMap.get(mapping.employeeId) }))
-      .filter((item): item is { mapping: EmployeeSiteMapping; employee: Employee } => Boolean(item.employee));
-  }, [employeeMap, mappings, selectedDate]);
+  const assignedEmployees = useMemo(() => {
+    return employees.filter((employee) => employee.status === "Active" && Boolean(employee.siteId));
+  }, [employees]);
 
   const attendanceRows = useMemo<AttendanceRow[]>(() => {
     const recordRows = selectedDateRecords.map((record) => {
       const employee = employeeMap.get(record.employeeId);
-      const site = siteMap.get(record.siteId);
       const attendanceStatus = toAttendanceStatus(record, employee);
       const totalHours = calculateTotalHours(record.checkInTime, record.checkOutTime);
       const isLate = employee ? isLateArrival(record.checkInTime, employee.dailyStartTime) : false;
@@ -264,18 +229,16 @@ export default function AttendanceManagementPage() {
         employeeId: record.employeeId,
         employeeCode: record.employeeCode,
         employeeName: record.employeeName,
+        serialNo: employee?.serialNo,
         designation: employee?.designation ?? record.designation,
         mobileNumber: employee?.mobileNumber ?? "—",
         siteId: record.siteId,
         siteCode: record.siteCode,
         siteName: record.siteName,
-        clientName: site?.clientName ?? "—",
         checkInTime: record.checkInTime,
         checkOutTime: record.checkOutTime,
         totalHours,
         attendanceStatus,
-        gpsStatus: getGpsStatus(record),
-        distance: calculateDistanceMeters(record, site),
         remarks: getRemarks(record, attendanceStatus, totalHours),
         isLate,
         minutesLate: lateMinutes,
@@ -288,37 +251,38 @@ export default function AttendanceManagementPage() {
 
     const recordedEmployeeIds = new Set(selectedDateRecords.map((record) => record.employeeId));
 
-    const absentRows: AttendanceRow[] = assignedEmployeesForDate
-      .filter(({ employee }) => employee.id && !recordedEmployeeIds.has(employee.id))
-      .map(({ mapping, employee }) => ({
-        id: `absent-${employee.id}-${selectedDate}`,
-        attendanceDate: selectedDate,
-        employeeId: employee.id ?? "",
-        employeeCode: employee.employeeCode,
-        employeeName: employee.employeeName,
-        designation: employee.designation,
-        mobileNumber: employee.mobileNumber,
-        siteId: mapping.siteId,
-        siteCode: mapping.siteCode,
-        siteName: mapping.siteName,
-        clientName: mapping.clientName,
-        checkInTime: undefined,
-        checkOutTime: undefined,
-        totalHours: "—",
-        attendanceStatus: "Absent" as AttendanceDisplayStatus,
-        gpsStatus: "Pending",
-        distance: "—",
-        remarks: "Not marked",
-        isLate: false,
-        minutesLate: null,
-        isEarly: false,
-        minutesEarly: null,
-        faceStatus: null,
-        record: undefined,
-      }));
+    const absentRows: AttendanceRow[] = assignedEmployees
+      .filter((employee) => employee.id && !recordedEmployeeIds.has(employee.id))
+      .map((employee) => {
+        const site = employee.siteId ? siteMap.get(employee.siteId) : undefined;
+        return {
+          id: `absent-${employee.id}-${selectedDate}`,
+          attendanceDate: selectedDate,
+          employeeId: employee.id ?? "",
+          employeeCode: employee.employeeCode,
+          employeeName: employee.employeeName,
+          serialNo: employee.serialNo,
+          designation: employee.designation,
+          mobileNumber: employee.mobileNumber,
+          siteId: site?.id ?? "",
+          siteCode: site?.siteCode ?? "—",
+          siteName: site?.siteName ?? "—",
+          checkInTime: undefined,
+          checkOutTime: undefined,
+          totalHours: "—",
+          attendanceStatus: "Absent" as AttendanceDisplayStatus,
+          remarks: "Not marked",
+          isLate: false,
+          minutesLate: null,
+          isEarly: false,
+          minutesEarly: null,
+          faceStatus: null,
+          record: undefined,
+        };
+      });
 
     return [...recordRows, ...absentRows];
-  }, [selectedDateRecords, employeeMap, siteMap, assignedEmployeesForDate, selectedDate]);
+  }, [selectedDateRecords, employeeMap, siteMap, assignedEmployees, selectedDate]);
 
   const filteredRows = useMemo(() => {
     return attendanceRows.filter((row) => {
@@ -329,19 +293,6 @@ export default function AttendanceManagementPage() {
       return employeeMatches && siteMatches && statusMatches;
     });
   }, [attendanceRows, selectedEmployeeId, selectedSiteId, statusFilter]);
-
-  const summary = useMemo(() => {
-    const assignedCount = assignedEmployeesForDate.length;
-    const checkedInCount = selectedDateRecords.filter((record) => record.status === "Checked In").length;
-    const checkedOutCount = selectedDateRecords.filter((record) => record.status === "Completed").length;
-    const presentCount = attendanceRows.filter((row) => row.attendanceStatus === "Present").length;
-    const absentCount = attendanceRows.filter((row) => row.attendanceStatus === "Absent").length;
-    const lateArrivalsCount = attendanceRows.filter((row) => row.isLate).length;
-    const earlyLeaversCount = attendanceRows.filter((row) => row.isEarly).length;
-    const needsReviewCount = attendanceRows.filter((row) => row.faceStatus && row.faceStatus !== "verified").length;
-
-    return { assignedCount, checkedInCount, checkedOutCount, presentCount, absentCount, lateArrivalsCount, earlyLeaversCount, needsReviewCount };
-  }, [assignedEmployeesForDate.length, attendanceRows, selectedDateRecords]);
 
   const resetFilters = () => {
     setSelectedEmployeeId("");
@@ -408,30 +359,6 @@ export default function AttendanceManagementPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
-        <AppCard title="Assigned" description="Active assignments for this date.">
-          <p className="text-3xl font-semibold text-slate-900">{summary.assignedCount}</p>
-        </AppCard>
-        <AppCard title="Checked In" description="Currently checked in.">
-          <p className="text-3xl font-semibold text-amber-600">{summary.checkedInCount}</p>
-        </AppCard>
-        <AppCard title="Checked Out" description="Completed their shift.">
-          <p className="text-3xl font-semibold text-emerald-600">{summary.checkedOutCount}</p>
-        </AppCard>
-        <AppCard title="Present" description="Full day completed.">
-          <p className="text-3xl font-semibold text-emerald-700">{summary.presentCount}</p>
-        </AppCard>
-        <AppCard title="Late Arrivals" description="After their own daily start time.">
-          <p className="text-3xl font-semibold text-violet-600">{summary.lateArrivalsCount}</p>
-        </AppCard>
-        <AppCard title="Early Leavers" description="Checked out before their own daily end time.">
-          <p className="text-3xl font-semibold text-fuchsia-600">{summary.earlyLeaversCount}</p>
-        </AppCard>
-        <AppCard title="Needs Face Review" description="Unverified or service-error face status.">
-          <p className="text-3xl font-semibold text-amber-600">{summary.needsReviewCount}</p>
-        </AppCard>
-      </div>
-
       <AppCard title="Filters" description="Refine the attendance view by employee, site, date, or status.">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <label className="space-y-1 text-sm text-slate-600">
@@ -451,13 +378,13 @@ export default function AttendanceManagementPage() {
           </label>
 
           <label className="space-y-1 text-sm text-slate-600">
-            <span className="font-medium">Site</span>
+            <span className="font-medium">Godown</span>
             <select
               value={selectedSiteId}
               onChange={(event) => setSelectedSiteId(event.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm outline-none"
             >
-              <option value="">All sites</option>
+              <option value="">All godowns</option>
               {sites.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.siteCode} - {site.siteName}
@@ -510,7 +437,7 @@ export default function AttendanceManagementPage() {
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-900">{row.employeeName}</p>
                     <p className="text-xs text-slate-500">
-                      {row.employeeCode} • {row.siteName}
+                      {row.employeeCode} • Serial No: {row.serialNo ?? "—"} • {row.siteName}
                     </p>
                   </div>
                   <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(row.attendanceStatus)}`}>
@@ -563,15 +490,13 @@ export default function AttendanceManagementPage() {
               <tr>
                 <th className="px-3 py-3">Date</th>
                 <th className="px-3 py-3">Employee</th>
-                <th className="px-3 py-3">Site</th>
+                <th className="px-3 py-3">Godown</th>
                 <th className="px-3 py-3">Check-In</th>
                 <th className="px-3 py-3">Check-Out</th>
                 <th className="px-3 py-3">Hours</th>
                 <th className="px-3 py-3">Status</th>
                 <th className="px-3 py-3">Late</th>
                 <th className="px-3 py-3">Early</th>
-                <th className="px-3 py-3">GPS</th>
-                <th className="px-3 py-3">Distance</th>
                 <th className="px-3 py-3">Face</th>
                 <th className="px-3 py-3">Remarks</th>
                 <th className="px-3 py-3">Actions</th>
@@ -580,7 +505,7 @@ export default function AttendanceManagementPage() {
             <tbody className="divide-y divide-slate-100 bg-white">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="px-3 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={12} className="px-3 py-8 text-center text-sm text-slate-500">
                     No attendance records match the current filters.
                   </td>
                 </tr>
@@ -589,7 +514,8 @@ export default function AttendanceManagementPage() {
                   <tr key={row.id} className="hover:bg-slate-50">
                     <td className="px-3 py-3 font-medium text-slate-900">{formatDateLabel(row.attendanceDate)}</td>
                     <td className="px-3 py-3">
-                      {row.employeeCode} — {row.employeeName}
+                      <p className="font-medium text-slate-900">{row.employeeName}</p>
+                      <p className="text-xs text-slate-500">{row.serialNo ?? "—"}</p>
                     </td>
                     <td className="px-3 py-3">{row.siteName}</td>
                     <td className="px-3 py-3">{getDisplayValue(row.checkInTime)}</td>
@@ -614,8 +540,6 @@ export default function AttendanceManagementPage() {
                         <span className="text-slate-500">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3">{row.gpsStatus}</td>
-                    <td className="px-3 py-3">{row.distance}</td>
                     <td className="px-3 py-3">
                       {row.faceStatus ? (
                         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getFaceBadgeClass(row.faceStatus)}`}>

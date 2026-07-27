@@ -27,11 +27,14 @@ npm install
 
 ## 3. Apply the schema
 
-One migration, `supabase/migrations/0001_init.sql` -- run its contents in the Supabase
-Dashboard SQL Editor for the new project. It creates every table fresh (`employees`
-with `daily_start_time`/`face_enrolled`, `sites`, `employee_site_mappings`,
+Run `supabase/migrations/0001_init.sql` through `0006_remove_employee_site_mapping.sql`,
+in order, in the Supabase Dashboard SQL Editor for the new project. `0001_init.sql`
+creates every table fresh (`employees` with `daily_start_time`/`face_enrolled`, `sites`,
 `face_embeddings`, `attendance` with the `check_in/out_face_status` enum,
-`admin_profiles`), the batch-assignment RPCs, and RLS policies.
+`admin_profiles`) and RLS policies; later migrations add `employees.daily_end_time`,
+`sites.geofence_enabled`, drop `sites.client_name`, add `employees.salary_per_hour`,
+and (0006) add `employees.site_id` -- each employee has a single directly-assigned
+site now, set from the Add/Edit Employee form.
 
 ## 4. Create the first admin user
 
@@ -50,23 +53,23 @@ npm run dev
 
 - Kiosk: http://localhost:3000/attendance (no login -- runs entirely through
   server-side service-role actions, gate-checked before any GPS/camera prompt: employee
-  active → face enrolled → site assignment for today, in that order).
+  active → face enrolled → assigned site, in that order).
 - Admin: http://localhost:3000/dashboard (redirects to `/admin-login` until you sign in
   with the account from step 4).
 
 ## 6. Smoke test (needs face-service + Supabase reachable)
 
-1. Dashboard → Employees → add a test employee, then capture all 4 "Enroll Face" shots.
-   Confirm `employees.face_enrolled` flips to `true` only after the 4th accepted shot.
-2. Dashboard → Sites → add a site, capturing GPS via the browser.
-3. Dashboard → Employee Mapping → assign the test employee to that site for today.
-4. Kiosk: check in as that employee with their own face -- confirm it succeeds before
+1. Dashboard → Sites → add a site, capturing GPS via the browser.
+2. Dashboard → Employees → add a test employee, selecting that site in the Site field,
+   then capture all 4 "Enroll Face" shots. Confirm `employees.face_enrolled` flips to
+   `true` only after the 4th accepted shot.
+3. Kiosk: check in as that employee with their own face -- confirm it succeeds before
    ever prompting for GPS/camera if any earlier gate would have failed (test by trying
-   an unenrolled or unassigned employee ID first -- should fail immediately with a
-   specific message, no permission prompts).
-5. Check in with a different face -- attendance still recorded (fail-open),
+   an unenrolled employee ID, or one with no Site set, first -- should fail immediately
+   with a specific message, no permission prompts).
+4. Check in with a different face -- attendance still recorded (fail-open),
    `check_in_face_status = 'unverified'`.
-6. Stop `face-service` and try another check-in -- attendance still recorded,
+5. Stop `face-service` and try another check-in -- attendance still recorded,
    `check_in_face_status = 'service_error'` (distinct from `unverified`).
-7. Attendance Management / Reports: confirm both `unverified` and `service_error` rows
+6. Attendance Management / Reports: confirm both `unverified` and `service_error` rows
    are visible and independently filterable.

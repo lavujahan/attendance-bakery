@@ -94,18 +94,23 @@ export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2
   return R * c;
 }
 
+// Late/early both get a 10-minute grace window before they're flagged -- once flagged,
+// the reported minutes are still the real gap from the scheduled time, not the gap
+// minus the grace period.
+const GRACE_MINUTES = 10;
+
 // Late is per-employee now (employees.daily_start_time), not a hardcoded 9:00 cutoff.
 export function isLateArrival(checkInTime: string | undefined, dailyStartTime: string): boolean {
   const checkInMinutes = timeToMinutes(checkInTime);
   const startMinutes = timeToMinutes(dailyStartTime);
   if (checkInMinutes === null || startMinutes === null) return false;
-  return checkInMinutes > startMinutes;
+  return checkInMinutes > startMinutes + GRACE_MINUTES;
 }
 
 export function minutesLate(checkInTime: string | undefined, dailyStartTime: string): number | null {
   const checkInMinutes = timeToMinutes(checkInTime);
   const startMinutes = timeToMinutes(dailyStartTime);
-  if (checkInMinutes === null || startMinutes === null || checkInMinutes <= startMinutes) return null;
+  if (checkInMinutes === null || startMinutes === null || checkInMinutes <= startMinutes + GRACE_MINUTES) return null;
   return checkInMinutes - startMinutes;
 }
 
@@ -115,12 +120,12 @@ export function isEarlyLeaver(checkOutTime: string | undefined, dailyEndTime: st
   const checkOutMinutes = timeToMinutes(checkOutTime);
   const endMinutes = timeToMinutes(dailyEndTime);
   if (checkOutMinutes === null || endMinutes === null) return false;
-  return checkOutMinutes < endMinutes;
+  return checkOutMinutes < endMinutes - GRACE_MINUTES;
 }
 
 export function minutesEarly(checkOutTime: string | undefined, dailyEndTime: string): number | null {
   const checkOutMinutes = timeToMinutes(checkOutTime);
   const endMinutes = timeToMinutes(dailyEndTime);
-  if (checkOutMinutes === null || endMinutes === null || checkOutMinutes >= endMinutes) return null;
+  if (checkOutMinutes === null || endMinutes === null || checkOutMinutes >= endMinutes - GRACE_MINUTES) return null;
   return endMinutes - checkOutMinutes;
 }

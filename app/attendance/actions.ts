@@ -17,8 +17,7 @@ function mapEmployeeRow(row: {
   employee_code: string;
   employee_name: string;
   mobile_number: string;
-  phone_prefix: string;
-  email: string;
+  serial_no: number;
   gender: "Male" | "Female" | "Other";
   designation: string;
   joining_date: string;
@@ -26,6 +25,8 @@ function mapEmployeeRow(row: {
   daily_end_time: string;
   face_enrolled: boolean;
   status: "Active" | "Inactive";
+  salary_per_hour: number;
+  site_id: string | null;
   created_at: string;
   updated_at: string;
 }): Employee {
@@ -34,8 +35,7 @@ function mapEmployeeRow(row: {
     employeeCode: row.employee_code,
     employeeName: row.employee_name,
     mobileNumber: row.mobile_number,
-    phonePrefix: row.phone_prefix,
-    email: row.email,
+    serialNo: row.serial_no,
     gender: row.gender,
     designation: row.designation,
     joiningDate: row.joining_date,
@@ -43,6 +43,8 @@ function mapEmployeeRow(row: {
     dailyEndTime: row.daily_end_time,
     faceEnrolled: row.face_enrolled,
     status: row.status,
+    salaryPerHour: row.salary_per_hour,
+    siteId: row.site_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -52,7 +54,6 @@ function mapSiteRow(row: {
   id: string;
   site_code: string;
   site_name: string;
-  client_name: string;
   site_incharge: string;
   latitude: number;
   longitude: number;
@@ -66,7 +67,6 @@ function mapSiteRow(row: {
     id: row.id,
     siteCode: row.site_code,
     siteName: row.site_name,
-    clientName: row.client_name,
     siteIncharge: row.site_incharge,
     latitude: row.latitude,
     longitude: row.longitude,
@@ -134,29 +134,20 @@ function mapAttendanceRow(row: {
   };
 }
 
-export async function findEmployeeByPhonePrefix(prefix: string): Promise<Employee[]> {
-  const { data, error } = await supabaseAdmin.from("employees").select("*").eq("phone_prefix", prefix);
+export async function findEmployeeBySerialNo(serialNo: number): Promise<Employee | null> {
+  const { data, error } = await supabaseAdmin.from("employees").select("*").eq("serial_no", serialNo).maybeSingle();
   if (error) throw error;
 
-  return (data ?? []).map(mapEmployeeRow);
+  return data ? mapEmployeeRow(data as Parameters<typeof mapEmployeeRow>[0]) : null;
 }
 
-export async function getTodaySiteAssignment(employeeId: string): Promise<Site | null> {
-  const today = getTodayDate();
-
-  const { data, error } = await supabaseAdmin
-    .from("employee_site_mappings")
-    .select("*, sites(*)")
-    .eq("employee_id", employeeId)
-    .eq("status", "Active")
-    .lte("from_date", today)
-    .gte("to_date", today)
-    .maybeSingle();
+export async function getEmployeeAssignedSite(siteId: string): Promise<Site | null> {
+  const { data, error } = await supabaseAdmin.from("sites").select("*").eq("id", siteId).maybeSingle();
 
   if (error) throw error;
-  if (!data || !data.sites) return null;
+  if (!data) return null;
 
-  return mapSiteRow(data.sites as Parameters<typeof mapSiteRow>[0]);
+  return mapSiteRow(data as Parameters<typeof mapSiteRow>[0]);
 }
 
 export async function getTodayAttendance(employeeId: string): Promise<AttendanceRecord[]> {
@@ -188,20 +179,27 @@ export type KioskGateResult =
   | { outcome: "no_site_assignment" }
   | { outcome: "already_completed"; employee: Employee; site: Site; record: AttendanceRecord };
 
-export async function checkKioskGates(phonePrefix: string): Promise<KioskGateResult> {
-  const candidates = await findEmployeeByPhonePrefix(phonePrefix);
-  const employee = candidates.find((item) => item.status === "Active") ?? null;
+export async function checkKioskGates(serialNoInput: string): Promise<KioskGateResult> {
+  const serialNo = Number(serialNoInput);
+  const employee = Number.isFinite(serialNo) ? await findEmployeeBySerialNo(serialNo) : null;
 
   if (!employee) {
-    const inactiveMatch = candidates.find((item) => item.status === "Inactive");
-    return inactiveMatch ? { outcome: "inactive" } : { outcome: "invalid_id" };
+    return { outcome: "invalid_id" };
+  }
+
+  if (employee.status !== "Active") {
+    return { outcome: "inactive" };
   }
 
   if (!employee.faceEnrolled) {
     return { outcome: "not_enrolled" };
   }
 
-  const site = await getTodaySiteAssignment(employee.id ?? "");
+  if (!employee.siteId) {
+    return { outcome: "no_site_assignment" };
+  }
+
+  const site = await getEmployeeAssignedSite(employee.siteId);
   if (!site) {
     return { outcome: "no_site_assignment" };
   }

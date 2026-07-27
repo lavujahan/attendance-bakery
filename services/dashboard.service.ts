@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { utils, writeFile } from "xlsx";
 import type { AttendanceRecord } from "@/types/attendance";
 import type { Employee } from "@/types/employee";
-import type { EmployeeSiteMapping } from "@/types/employeeSiteMapping";
 import type { Site } from "@/types/site";
 import { isLateArrival, minutesLate, isEarlyLeaver, minutesEarly } from "@/lib/attendanceMath";
 
@@ -18,7 +17,6 @@ export interface DashboardFilters {
   employeeId: string;
   designation: string;
   status: string;
-  client: string;
   search: string;
 }
 
@@ -54,7 +52,6 @@ export interface SiteAttendanceRow {
   siteId: string;
   siteCode: string;
   siteName: string;
-  client: string;
   assignedEmployees: number;
   present: number;
   absent: number;
@@ -165,10 +162,6 @@ function isDateInRange(value: string, startDate: string, endDate: string) {
   return value >= startDate && value <= endDate;
 }
 
-function overlapsDateRange(fromDate: string, toDate: string, startDate: string, endDate: string) {
-  return !(toDate < startDate || fromDate > endDate);
-}
-
 function parseTimeToMinutes(value?: string) {
   if (!value) return null;
   const text = value.trim();
@@ -254,11 +247,10 @@ function filterEmployees(employees: Employee[], filters: DashboardFilters) {
 
 function filterSites(sites: Site[], filters: DashboardFilters) {
   return sites.filter((site) => {
-    const matchesSearch = matchesText(site.siteName, filters.search) || matchesText(site.siteCode, filters.search) || matchesText(site.clientName, filters.search);
-    const matchesClient = !filters.client || site.clientName === filters.client;
+    const matchesSearch = matchesText(site.siteName, filters.search) || matchesText(site.siteCode, filters.search);
     const matchesStatus = !filters.status || site.status === filters.status;
 
-    return matchesSearch && matchesClient && matchesStatus;
+    return matchesSearch && matchesStatus;
   });
 }
 
@@ -282,9 +274,13 @@ function filterRecords(records: AttendanceRecord[], filters: DashboardFilters) {
   });
 }
 
-function getAssignmentsForRange(mappings: EmployeeSiteMapping[], filters: DashboardFilters) {
-  const { startDate, endDate } = getEffectiveDateRange(filters);
-  return mappings.filter((mapping) => mapping.status === "Active" && overlapsDateRange(mapping.fromDate, mapping.toDate, startDate, endDate));
+function getAssignedEmployees(employees: Employee[], filters: DashboardFilters) {
+  return employees.filter((employee) => {
+    if (!employee.siteId) return false;
+    if (employee.status !== "Active") return false;
+    if (filters.siteId && employee.siteId !== filters.siteId) return false;
+    return true;
+  });
 }
 
 function getPresentRecords(records: AttendanceRecord[]) {
@@ -295,15 +291,13 @@ export function getDashboardSummary(
   records: AttendanceRecord[],
   employees: Employee[],
   sites: Site[],
-  mappings: EmployeeSiteMapping[],
   filters: DashboardFilters
 ): DashboardSummary {
   const employeeMap = buildEmployeeMap(employees);
   const filteredEmployees = filterEmployees(employees, filters);
   const filteredSites = filterSites(sites, filters);
   const filteredRecords = filterRecords(records, filters);
-  const filteredAssignments = getAssignmentsForRange(mappings, filters);
-  const assignedEmployees = new Set(filteredAssignments.map((mapping) => mapping.employeeId));
+  const assignedEmployees = new Set(getAssignedEmployees(employees, filters).map((employee) => employee.id));
   const lateArrivals = filteredRecords.filter((record) => isRecordLate(record, employeeMap)).length;
   const earlyLeavers = filteredRecords.filter((record) => isRecordEarly(record, employeeMap)).length;
 
@@ -340,8 +334,7 @@ export function getAttendanceSummary(records: AttendanceRecord[], employees: Emp
   const employeeMap = buildEmployeeMap(employees);
   const filteredRecords = filterRecords(records, filters);
   const presentRecords = getPresentRecords(filteredRecords);
-  const filteredAssignments = getAssignmentsForRange([], filters);
-  const assignedCount = filteredAssignments.length;
+  const assignedCount = getAssignedEmployees(employees, filters).length;
   const presentCount = presentRecords.length;
   const checkedIn = filteredRecords.filter((record) => record.status === "Checked In").length;
   const checkedOut = filteredRecords.filter((record) => record.status === "Completed").length;
@@ -362,18 +355,16 @@ export function getSiteAttendance(
   records: AttendanceRecord[],
   employees: Employee[],
   sites: Site[],
-  mappings: EmployeeSiteMapping[],
   filters: DashboardFilters
 ): SiteAttendanceRow[] {
   const employeeMap = buildEmployeeMap(employees);
   const filteredRecords = filterRecords(records, filters);
   const filteredSites = filterSites(sites, filters);
-  const assignments = getAssignmentsForRange(mappings, filters);
+  const assigned = getAssignedEmployees(employees, filters);
 
   return filteredSites
     .map((site) => {
-      const siteAssignments = assignments.filter((mapping) => mapping.siteId === site.id);
-      const assignedEmployees = new Set(siteAssignments.map((mapping) => mapping.employeeId));
+      const assignedEmployees = new Set(assigned.filter((employee) => employee.siteId === site.id).map((employee) => employee.id));
       const siteRecords = filteredRecords.filter((record) => record.siteId === site.id);
       const presentRecords = getPresentRecords(siteRecords);
       const presentEmployees = new Set(presentRecords.map((record) => record.employeeId));
@@ -387,7 +378,6 @@ export function getSiteAttendance(
         siteId: site.id || "",
         siteCode: site.siteCode,
         siteName: site.siteName,
-        client: site.clientName,
         assignedEmployees: assignedEmployees.size,
         present,
         absent,
@@ -403,24 +393,18 @@ export function getEmployeeAttendance(
   records: AttendanceRecord[],
   employees: Employee[],
   sites: Site[],
-  mappings: EmployeeSiteMapping[],
   filters: DashboardFilters
 ): EmployeeAttendanceRow[] {
   const filteredEmployees = filterEmployees(employees, filters);
   const filteredRecords = filterRecords(records, filters);
-  const mappingMap = new Map<string, EmployeeSiteMapping>();
-
-  getAssignmentsForRange(mappings, filters).forEach((mapping) => {
-    mappingMap.set(mapping.employeeId, mapping);
-  });
+  const siteMap = new Map(sites.map((site) => [site.id, site]));
 
   return filteredEmployees.map((employee) => {
     const latestRecord = [...filteredRecords]
       .filter((record) => record.employeeId === employee.id)
       .sort((left, right) => (left.attendanceDate > right.attendanceDate ? -1 : 1))[0];
 
-    const assignedMapping = mappingMap.get(employee.id || "");
-    const assignedSite = assignedMapping ? assignedMapping.siteName : "—";
+    const assignedSite = siteMap.get(employee.siteId ?? "")?.siteName ?? "—";
     const checkInTime = latestRecord?.checkInTime || "—";
     const checkOutTime = latestRecord?.checkOutTime || "—";
     const workingHours =

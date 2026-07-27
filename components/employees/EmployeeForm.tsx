@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Employee } from "@/types/employee";
+import { Site } from "@/types/site";
 import { employeeSchema, EmployeeFormData } from "@/schemas/employee.schema";
 
 import { addEmployee, updateEmployee } from "@/services/employee.service";
+import { subscribeSites } from "@/services/site.service";
 import { resetEmployeeFaceEnrollment } from "@/app/dashboard/employees/faceActions";
 import { toast } from "sonner";
 
@@ -29,6 +31,12 @@ interface Props {
 
 export default function EmployeeForm({ employee, onSuccess }: Props) {
   const [loading, setLoading] = useState(false);
+  const [sites, setSites] = useState<Site[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeSites((next) => setSites(next));
+    return () => unsubscribe();
+  }, []);
 
   const {
     register,
@@ -41,13 +49,14 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
     defaultValues: {
       employeeName: employee?.employeeName || "",
       mobileNumber: employee?.mobileNumber || "",
-      email: employee?.email || "",
       gender: employee?.gender || "Male",
       designation: employee?.designation || "",
       joiningDate: employee?.joiningDate || "",
       dailyStartTime: employee?.dailyStartTime?.slice(0, 5) || "09:00",
       dailyEndTime: employee?.dailyEndTime?.slice(0, 5) || "18:00",
       status: employee?.status || "Active",
+      salaryPerHour: employee?.salaryPerHour ?? 0,
+      siteId: employee?.siteId || "",
     },
   });
 
@@ -76,7 +85,7 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
       }
     } catch (error) {
       console.error(error);
-      toast.error("Something went wrong");
+      toast.error(error instanceof Error ? error.message : "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -100,9 +109,15 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Email</Label>
-          <Input type="email" placeholder="employee@email.com" {...register("email")} />
-          <p className="text-sm text-red-500">{errors.email?.message}</p>
+          <Label>Salary per Hour *</Label>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="0.00"
+            {...register("salaryPerHour", { valueAsNumber: true })}
+          />
+          <p className="text-sm text-red-500">{errors.salaryPerHour?.message}</p>
         </div>
 
         <div className="space-y-2">
@@ -156,6 +171,31 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Godown *</Label>
+          <Controller
+            control={control}
+            name="siteId"
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a site" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sites
+                    .filter((site) => site.status === "Active")
+                    .map((site) => (
+                      <SelectItem key={site.id} value={site.id!}>
+                        {site.siteCode} — {site.siteName}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+          <p className="text-sm text-red-500">{errors.siteId?.message}</p>
+        </div>
+
         <div className="space-y-2">
           <Label>Status</Label>
           <Controller

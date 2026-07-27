@@ -32,7 +32,6 @@ export default function SiteTable() {
       (site) =>
         site.siteCode?.toLowerCase().includes(value) ||
         site.siteName?.toLowerCase().includes(value) ||
-        site.clientName?.toLowerCase().includes(value) ||
         site.siteIncharge?.toLowerCase().includes(value)
     );
   }, [sites, search]);
@@ -45,7 +44,7 @@ export default function SiteTable() {
       await deleteSite(selectedSite.id);
       setDeleteOpen(false);
       setSelectedSite(null);
-      toast.success("Site Deleted Successfully");
+      toast.success("Godown Deleted Successfully");
     } catch (error) {
       console.error(error);
       toast.error("Something went wrong");
@@ -105,7 +104,6 @@ export default function SiteTable() {
                 {statusBadge(site)}
               </div>
               <div className="mt-3 space-y-1 text-sm text-slate-600">
-                <p>Client: {site.clientName}</p>
                 <p>Incharge: {site.siteIncharge}</p>
                 <p>
                   {site.latitude.toFixed(5)}, {site.longitude.toFixed(5)} · {site.allowedRadius} m radius
@@ -143,8 +141,7 @@ export default function SiteTable() {
           <thead className="bg-gray-100">
             <tr>
               <th className="p-3 text-left">Code</th>
-              <th className="p-3 text-left">Site Name</th>
-              <th className="p-3 text-left">Client</th>
+              <th className="p-3 text-left">Godown Name</th>
               <th className="p-3 text-left">Incharge</th>
               <th className="p-3 text-left">Latitude</th>
               <th className="p-3 text-left">Longitude</th>
@@ -157,7 +154,7 @@ export default function SiteTable() {
           <tbody>
             {filteredSites.length === 0 ? (
               <tr>
-                <td colSpan={10} className="p-6 text-center text-gray-500">
+                <td colSpan={9} className="p-6 text-center text-gray-500">
                   No sites found.
                 </td>
               </tr>
@@ -166,7 +163,6 @@ export default function SiteTable() {
                 <tr key={site.id} className="border-t hover:bg-gray-50">
                   <td className="p-3 font-medium">{site.siteCode}</td>
                   <td className="p-3 font-medium text-slate-900">{site.siteName}</td>
-                  <td className="p-3">{site.clientName}</td>
                   <td className="p-3">{site.siteIncharge}</td>
                   <td className="p-3">{site.latitude}</td>
                   <td className="p-3">{site.longitude}</td>
