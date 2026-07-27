@@ -283,15 +283,20 @@ export async function checkOut(data: {
 // ---- Face verification + recording, in one call from the capture step ----
 // - "retry": the capture itself was unusable (no face / multiple faces / bad image) --
 //   no attendance row written, employee just recaptures.
+// - "mismatch_retry": the face was captured fine but didn't match ("unverified"), and
+//   the employee still has their one mismatch retry left (params.allowMismatchRetry) --
+//   no attendance row written yet, employee gets one more capture before this is
+//   recorded as a rejection.
 // - "restart": employee's enrollment state changed since the gate check (rare race) --
 //   no attendance row written, kiosk should restart from ID entry.
 // - "recorded": an attendance row was written with the given faceStatus. 'verified' and
 //   'unverified' both come from a genuine face-service response; 'service_error' means
-//   face-service was unreachable/timed out -- all three are fail-open (never block a
-//   legitimate employee over a mismatch or a technical hiccup), but distinguishable for
-//   HR triage (see lib/faceService/client.ts for the full rationale).
+//   face-service was unreachable/timed out -- all three are fail-open (never permanently
+//   block a legitimate employee over a mismatch or a technical hiccup), but distinguishable
+//   for HR triage (see lib/faceService/client.ts for the full rationale).
 export type FaceAttendanceResult =
   | { outcome: "retry"; message: string }
+  | { outcome: "mismatch_retry"; message: string }
   | { outcome: "restart"; message: string }
   | { outcome: "recorded"; faceStatus: FaceStatus; confidence: number | null; checkInTime: string | null; checkOutTime: string | null };
 
@@ -304,6 +309,7 @@ export async function verifyFaceAndRecordAttendance(params: {
   accuracy: number;
   recordId?: string;
   image: Blob;
+  allowMismatchRetry: boolean;
 }): Promise<FaceAttendanceResult> {
   const result = await verifyFace(params.employee.id ?? "", params.action, params.image);
 
@@ -318,6 +324,10 @@ export async function verifyFaceAndRecordAttendance(params: {
 
   if (result.outcome === "not_enrolled") {
     return { outcome: "restart", message: "Face enrollment is no longer active for this employee — contact HR." };
+  }
+
+  if (result.outcome === "unverified" && params.allowMismatchRetry) {
+    return { outcome: "mismatch_retry", message: "Face didn't match — please try again." };
   }
 
   const faceStatus: FaceStatus =

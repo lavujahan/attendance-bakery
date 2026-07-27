@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiCheck } from "react-icons/fi";
+import { FiCheck, FiX } from "react-icons/fi";
 import { Button } from "@/components/ui/button";
 import CameraCapture from "@/components/attendance/CameraCapture";
 import Keypad from "@/components/attendance/Keypad";
@@ -33,6 +33,7 @@ export default function AttendancePortalPage() {
   const [existingRecordId, setExistingRecordId] = useState<string | null>(null);
   const [gps, setGps] = useState<GpsState | null>(null);
   const [captureAttempt, setCaptureAttempt] = useState(0);
+  const [mismatchAttempt, setMismatchAttempt] = useState<0 | 1>(0);
   const [result, setResult] = useState<ResultInfo | null>(null);
   const [statusMessage, setStatusMessage] = useState(IDLE_MESSAGE);
   const [statusType, setStatusType] = useState<StatusType>("info");
@@ -74,6 +75,7 @@ export default function AttendancePortalPage() {
     setExistingRecordId(null);
     setGps(null);
     setCaptureAttempt(0);
+    setMismatchAttempt(0);
     setResult(null);
     setAttendanceId("");
     setStatusMessage(IDLE_MESSAGE);
@@ -231,12 +233,22 @@ export default function AttendancePortalPage() {
         accuracy: gps.accuracy,
         recordId: existingRecordId ?? undefined,
         image: blob,
+        allowMismatchRetry: mismatchAttempt === 0,
       });
       const responseSeconds = (performance.now() - startedAt) / 1000;
 
       if (outcome.outcome === "retry") {
         setStatusMessage(outcome.message);
         setStatusType("warning");
+        setStage("capturing");
+        setCaptureAttempt((attempt) => attempt + 1);
+        return;
+      }
+
+      if (outcome.outcome === "mismatch_retry") {
+        setMismatchAttempt(1);
+        setStatusMessage(outcome.message);
+        setStatusType("error");
         setStage("capturing");
         setCaptureAttempt((attempt) => attempt + 1);
         return;
@@ -369,9 +381,15 @@ export default function AttendancePortalPage() {
 
             {showResultCard && result && (
               <div className="space-y-5 text-center">
-                <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-emerald-100">
-                  <FiCheck className="h-14 w-14 text-emerald-600" />
-                </div>
+                {result.faceStatus === "unverified" ? (
+                  <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-rose-100">
+                    <FiX className="h-14 w-14 text-rose-600" />
+                  </div>
+                ) : (
+                  <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-emerald-100">
+                    <FiCheck className="h-14 w-14 text-emerald-600" />
+                  </div>
+                )}
 
                 <p className="text-sm font-medium text-slate-500">
                   Attendance Type:{" "}
@@ -396,8 +414,8 @@ export default function AttendancePortalPage() {
                 </div>
 
                 {result.faceStatus === "unverified" && (
-                  <p className="rounded-[16px] bg-amber-50 p-3 text-sm font-medium text-amber-700">
-                    Face couldn&apos;t be confidently verified — HR will review this.
+                  <p className="rounded-[16px] bg-rose-50 p-3 text-sm font-medium text-rose-700">
+                    Face not matched after 2 attempts — this attendance has been flagged for HR review.
                   </p>
                 )}
                 {result.faceStatus === "service_error" && (
