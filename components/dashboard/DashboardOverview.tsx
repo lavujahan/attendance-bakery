@@ -6,8 +6,10 @@ import DashboardFilters from "@/components/dashboard/DashboardFilters";
 import { subscribeAttendance } from "@/services/attendance.service";
 import { subscribeEmployees } from "@/services/employee.service";
 import { subscribeSites } from "@/services/site.service";
+import { getHolidayDateSetsForRange } from "@/services/holiday.service";
 import {
   getDashboardSummary,
+  toLocalDateInput,
   type DashboardFilters as DashboardFilterState,
 } from "@/services/dashboard.service";
 import type { AttendanceRecord } from "@/types/attendance";
@@ -30,6 +32,7 @@ export default function DashboardOverview() {
   const [sites, setSites] = useState<Site[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [filters, setFilters] = useState<DashboardFilterState>(defaultFilters);
+  const [holidaysBySite, setHolidaysBySite] = useState<Map<string, Set<string>>>(new Map());
 
   useEffect(() => {
     const unsubEmployees = subscribeEmployees((next) => setEmployees(next));
@@ -43,7 +46,20 @@ export default function DashboardOverview() {
     };
   }, []);
 
-  const summary = useMemo(() => getDashboardSummary(records, employees, sites, filters), [records, employees, sites, filters]);
+  useEffect(() => {
+    const siteIds = sites.map((site) => site.id).filter((id): id is string => Boolean(id));
+    if (siteIds.length === 0) return;
+
+    const today = toLocalDateInput(new Date());
+    getHolidayDateSetsForRange(siteIds, today, today)
+      .then(setHolidaysBySite)
+      .catch(() => setHolidaysBySite(new Map()));
+  }, [sites]);
+
+  const summary = useMemo(
+    () => getDashboardSummary(records, employees, sites, filters, holidaysBySite),
+    [records, employees, sites, filters, holidaysBySite]
+  );
 
   return (
     <div className="space-y-6">

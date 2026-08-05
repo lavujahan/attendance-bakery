@@ -29,7 +29,7 @@ Manage your godown/branch locations.
 ## 4. Employees
 Manage your employee roster and their face check-in setup.
 
-- **Add Employee**: fill in Name, Mobile Number, Salary per Hour, Gender, Designation, Joining Date, Daily Mandatory Start/End Time, Godown, and Status, then save.
+- **Add Employee**: fill in Name, Mobile Number, Salary per Day, Gender, Designation, Joining Date, Daily Mandatory Start/End Time, Godown, and Status, then save.
 - Right after saving a new employee, you'll be prompted to **enroll their face** — 4 photos are captured one at a time for kiosk check-in. Follow the on-screen instructions if a shot is rejected (e.g. too blurry, face not straight, more than one face).
 - Use **Edit** to update details, or the **Enroll Face** / **Re-enroll Face** button to (re-)do face setup any time.
 - Use **Delete** to remove an employee permanently — this also removes their face data.

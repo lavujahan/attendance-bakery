@@ -2,6 +2,7 @@ import autoTable from "jspdf-autotable";
 import { jsPDF } from "jspdf";
 import { toast } from "sonner";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { calculateSalaryPerHour } from "@/lib/attendanceMath";
 import { EmployeeFormData } from "@/schemas/employee.schema";
 import { Employee } from "@/types/employee";
 import type { Site } from "@/types/site";
@@ -21,7 +22,9 @@ type EmployeeRow = {
   daily_end_time: string;
   face_enrolled: boolean;
   status: "Active" | "Inactive";
+  salary_per_day: number;
   salary_per_hour: number;
+  id_proof_url: string | null;
   site_id: string | null;
   created_at: string;
   updated_at: string;
@@ -41,7 +44,9 @@ function mapRow(row: EmployeeRow): Employee {
     dailyEndTime: row.daily_end_time,
     faceEnrolled: row.face_enrolled,
     status: row.status,
+    salaryPerDay: row.salary_per_day,
     salaryPerHour: row.salary_per_hour,
+    idProofUrl: row.id_proof_url ?? undefined,
     siteId: row.site_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -65,7 +70,9 @@ export async function addEmployee(data: EmployeeFormData) {
       daily_start_time: toDbTime(data.dailyStartTime),
       daily_end_time: toDbTime(data.dailyEndTime),
       status: data.status,
-      salary_per_hour: data.salaryPerHour,
+      salary_per_day: data.salaryPerDay,
+      salary_per_hour: calculateSalaryPerHour(data.salaryPerDay, data.dailyStartTime, data.dailyEndTime),
+      id_proof_url: data.idProofUrl ?? null,
       site_id: data.siteId,
     })
     .select()
@@ -131,7 +138,9 @@ export async function updateEmployee(id: string, data: EmployeeFormData) {
       daily_start_time: toDbTime(data.dailyStartTime),
       daily_end_time: toDbTime(data.dailyEndTime),
       status: data.status,
-      salary_per_hour: data.salaryPerHour,
+      salary_per_day: data.salaryPerDay,
+      salary_per_hour: calculateSalaryPerHour(data.salaryPerDay, data.dailyStartTime, data.dailyEndTime),
+      id_proof_url: data.idProofUrl ?? null,
       site_id: data.siteId,
     })
     .eq("id", id);
@@ -164,10 +173,11 @@ export async function exportEmployeesPDF(employees: Employee[], sites: Site[]) {
     "Joining Date",
     "Daily Start Time",
     "Daily End Time",
-    "Salary/hr",
+    "Salary/day",
     "Godown",
     "Face Enrolled",
     "Status",
+    "ID Proof Link",
   ];
 
   const rows = employees.map((employee) => [
@@ -180,10 +190,11 @@ export async function exportEmployeesPDF(employees: Employee[], sites: Site[]) {
     employee.joiningDate,
     employee.dailyStartTime?.slice(0, 5) ?? "",
     employee.dailyEndTime?.slice(0, 5) ?? "",
-    employee.salaryPerHour.toFixed(2),
+    employee.salaryPerDay.toFixed(2),
     (employee.siteId && siteMap.get(employee.siteId)?.siteName) || "—",
     employee.faceEnrolled ? "Yes" : "No",
     employee.status,
+    employee.idProofUrl ?? "—",
   ]);
 
   autoTable(doc, {

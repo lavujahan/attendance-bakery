@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { subscribeAttendance } from "@/services/attendance.service";
 import { subscribeEmployees } from "@/services/employee.service";
 import { subscribeSites } from "@/services/site.service";
-import { exportExcel, exportPDF, getAttendanceTrend, getDashboardSummary, type DashboardFilters } from "@/services/dashboard.service";
+import { getHolidayDateSetsForRange } from "@/services/holiday.service";
+import { exportExcel, exportPDF, getAttendanceTrend, getDashboardSummary, toLocalDateInput, type DashboardFilters } from "@/services/dashboard.service";
 import { isLateArrival, isEarlyLeaver } from "@/lib/attendanceMath";
 import type { AttendanceRecord, FaceStatus } from "@/types/attendance";
 import type { Employee } from "@/types/employee";
@@ -63,6 +64,7 @@ function ReportsWorkspaceInner({ searchParams }: { searchParams: URLSearchParams
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
+  const [holidaysBySite, setHolidaysBySite] = useState<Map<string, Set<string>>>(new Map());
   const [filters, setFilters] = useState<DashboardFilters>(() => ({
     ...defaultFilters,
     siteId: searchParams.get("siteId") || defaultFilters.siteId,
@@ -89,9 +91,24 @@ function ReportsWorkspaceInner({ searchParams }: { searchParams: URLSearchParams
     };
   }, []);
 
+  useEffect(() => {
+    const siteIds = sites.map((site) => site.id).filter((id): id is string => Boolean(id));
+    if (siteIds.length === 0) return;
+
+    // getDashboardSummary's "Absent Today" tile only ever looks at today's date, so
+    // fetching a single-day holiday set here is enough to keep it holiday-aware.
+    const today = toLocalDateInput(new Date());
+    getHolidayDateSetsForRange(siteIds, today, today)
+      .then(setHolidaysBySite)
+      .catch(() => setHolidaysBySite(new Map()));
+  }, [sites]);
+
   const employeeMap = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
 
-  const summary = useMemo(() => getDashboardSummary(records, employees, sites, filters), [records, employees, sites, filters]);
+  const summary = useMemo(
+    () => getDashboardSummary(records, employees, sites, filters, holidaysBySite),
+    [records, employees, sites, filters, holidaysBySite]
+  );
   const trend = useMemo(() => getAttendanceTrend(records, employees, filters), [records, employees, filters]);
 
   const rows = useMemo(() => {
@@ -143,6 +160,7 @@ function ReportsWorkspaceInner({ searchParams }: { searchParams: URLSearchParams
       earlyLeaver: employeeMap.get(record.employeeId) && isEarlyLeaver(record.checkOutTime, employeeMap.get(record.employeeId)!.dailyEndTime) ? "Yes" : "No",
       faceStatus: (record.checkInFaceStatus ?? "not_attempted") as FaceStatus | "not_attempted",
       attendanceStatus: record.status,
+      idProofLink: employeeMap.get(record.employeeId)?.idProofUrl ?? "—",
     }));
   }, [records, filters, reportType, faceStatusFilter, employeeMap]);
 
@@ -159,6 +177,7 @@ function ReportsWorkspaceInner({ searchParams }: { searchParams: URLSearchParams
     "Early Leaver",
     "Face Status",
     "Attendance Status",
+    "ID Proof Link",
   ];
 
   const tableRows = rows.map((row) =>
@@ -188,6 +207,8 @@ function ReportsWorkspaceInner({ searchParams }: { searchParams: URLSearchParams
           return row.faceStatus;
         case "Attendance Status":
           return row.attendanceStatus;
+        case "ID Proof Link":
+          return row.idProofLink;
         default:
           return "";
       }

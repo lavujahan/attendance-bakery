@@ -25,6 +25,7 @@ function mapEmployeeRow(row: {
   daily_end_time: string;
   face_enrolled: boolean;
   status: "Active" | "Inactive";
+  salary_per_day: number;
   salary_per_hour: number;
   site_id: string | null;
   created_at: string;
@@ -43,6 +44,7 @@ function mapEmployeeRow(row: {
     dailyEndTime: row.daily_end_time,
     faceEnrolled: row.face_enrolled,
     status: row.status,
+    salaryPerDay: row.salary_per_day,
     salaryPerHour: row.salary_per_hour,
     siteId: row.site_id ?? undefined,
     createdAt: row.created_at,

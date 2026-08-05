@@ -104,7 +104,7 @@ export interface ExportReportPayload {
   filters: DashboardFilters;
 }
 
-function toLocalDateInput(date: Date) {
+export function toLocalDateInput(date: Date) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
@@ -287,17 +287,44 @@ function getPresentRecords(records: AttendanceRecord[]) {
   return records.filter((record) => record.status === "Checked In" || record.status === "Completed");
 }
 
+// Holidays are per-godown, so a date can be a holiday for one site and a working day
+// for another -- callers pass a Map keyed by siteId (see getHolidayDateSetsForRange in
+// services/holiday.service.ts) rather than a flat Set.
+function isHoliday(siteId: string | undefined, date: string, holidaysBySite: Map<string, Set<string>>) {
+  if (!siteId) return false;
+  return holidaysBySite.get(siteId)?.has(date) ?? false;
+}
+
+// Used by the headcount-based (not per-day) absence calculations below -- an employee
+// is only excluded from those denominators when every day in the range is a holiday
+// for their site (for a single-day range, e.g. "today", this is the same as isHoliday).
+function isFullyHolidayRange(siteId: string | undefined, startDate: string, endDate: string, holidaysBySite: Map<string, Set<string>>) {
+  if (!siteId) return false;
+  const holidaySet = holidaysBySite.get(siteId);
+  if (!holidaySet) return false;
+
+  const cursor = new Date(`${startDate}T00:00:00`);
+  const last = new Date(`${endDate}T00:00:00`);
+  while (cursor <= last) {
+    if (!holidaySet.has(toLocalDateInput(cursor))) return false;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return true;
+}
+
 export function getDashboardSummary(
   records: AttendanceRecord[],
   employees: Employee[],
   sites: Site[],
-  filters: DashboardFilters
+  filters: DashboardFilters,
+  holidaysBySite: Map<string, Set<string>> = new Map()
 ): DashboardSummary {
   const employeeMap = buildEmployeeMap(employees);
   const filteredEmployees = filterEmployees(employees, filters);
   const filteredSites = filterSites(sites, filters);
   const filteredRecords = filterRecords(records, filters);
-  const assignedEmployees = new Set(getAssignedEmployees(employees, filters).map((employee) => employee.id));
+  const assignedEmployeesList = getAssignedEmployees(employees, filters);
+  const assignedEmployees = new Set(assignedEmployeesList.map((employee) => employee.id));
   const lateArrivals = filteredRecords.filter((record) => isRecordLate(record, employeeMap)).length;
   const earlyLeavers = filteredRecords.filter((record) => isRecordEarly(record, employeeMap)).length;
 
@@ -308,8 +335,11 @@ export function getDashboardSummary(
   const checkedIn = todayRecords.filter((record) => record.status === "Checked In").length;
   const checkedOut = todayRecords.filter((record) => record.status === "Completed").length;
   const presentToday = todayPresentRecords.length;
-  const absentToday = Math.max(0, assignedEmployees.size - todayPresentEmployees.size);
-  const attendancePercentage = assignedEmployees.size > 0 ? Math.round((presentToday / assignedEmployees.size) * 100) : 0;
+  const nonHolidayAssignedToday = assignedEmployeesList.filter(
+    (employee) => !isHoliday(employee.siteId, today, holidaysBySite)
+  ).length;
+  const absentToday = Math.max(0, nonHolidayAssignedToday - todayPresentEmployees.size);
+  const attendancePercentage = nonHolidayAssignedToday > 0 ? Math.round((presentToday / nonHolidayAssignedToday) * 100) : 0;
 
   return {
     totalEmployees: filteredEmployees.length,
@@ -330,11 +360,19 @@ export function getDashboardSummary(
   };
 }
 
-export function getAttendanceSummary(records: AttendanceRecord[], employees: Employee[], filters: DashboardFilters): AttendanceSummary {
+export function getAttendanceSummary(
+  records: AttendanceRecord[],
+  employees: Employee[],
+  filters: DashboardFilters,
+  holidaysBySite: Map<string, Set<string>> = new Map()
+): AttendanceSummary {
   const employeeMap = buildEmployeeMap(employees);
   const filteredRecords = filterRecords(records, filters);
   const presentRecords = getPresentRecords(filteredRecords);
-  const assignedCount = getAssignedEmployees(employees, filters).length;
+  const { startDate, endDate } = getEffectiveDateRange(filters);
+  const assignedCount = getAssignedEmployees(employees, filters).filter(
+    (employee) => !isFullyHolidayRange(employee.siteId, startDate, endDate, holidaysBySite)
+  ).length;
   const presentCount = presentRecords.length;
   const checkedIn = filteredRecords.filter((record) => record.status === "Checked In").length;
   const checkedOut = filteredRecords.filter((record) => record.status === "Completed").length;
@@ -355,16 +393,23 @@ export function getSiteAttendance(
   records: AttendanceRecord[],
   employees: Employee[],
   sites: Site[],
-  filters: DashboardFilters
+  filters: DashboardFilters,
+  holidaysBySite: Map<string, Set<string>> = new Map()
 ): SiteAttendanceRow[] {
   const employeeMap = buildEmployeeMap(employees);
   const filteredRecords = filterRecords(records, filters);
   const filteredSites = filterSites(sites, filters);
   const assigned = getAssignedEmployees(employees, filters);
+  const { startDate, endDate } = getEffectiveDateRange(filters);
 
   return filteredSites
     .map((site) => {
-      const assignedEmployees = new Set(assigned.filter((employee) => employee.siteId === site.id).map((employee) => employee.id));
+      const assignedEmployees = new Set(
+        assigned
+          .filter((employee) => employee.siteId === site.id)
+          .filter((employee) => !isFullyHolidayRange(employee.siteId, startDate, endDate, holidaysBySite))
+          .map((employee) => employee.id)
+      );
       const siteRecords = filteredRecords.filter((record) => record.siteId === site.id);
       const presentRecords = getPresentRecords(siteRecords);
       const presentEmployees = new Set(presentRecords.map((record) => record.employeeId));
@@ -393,11 +438,13 @@ export function getEmployeeAttendance(
   records: AttendanceRecord[],
   employees: Employee[],
   sites: Site[],
-  filters: DashboardFilters
+  filters: DashboardFilters,
+  holidaysBySite: Map<string, Set<string>> = new Map()
 ): EmployeeAttendanceRow[] {
   const filteredEmployees = filterEmployees(employees, filters);
   const filteredRecords = filterRecords(records, filters);
   const siteMap = new Map(sites.map((site) => [site.id, site]));
+  const { endDate } = getEffectiveDateRange(filters);
 
   return filteredEmployees.map((employee) => {
     const latestRecord = [...filteredRecords]
@@ -411,7 +458,7 @@ export function getEmployeeAttendance(
       latestRecord?.checkInTime && latestRecord?.checkOutTime
         ? formatWorkingHours(parseTimeToMinutes(latestRecord.checkOutTime)! - parseTimeToMinutes(latestRecord.checkInTime)!)
         : "—";
-    const attendanceStatus = latestRecord?.status || "Absent";
+    const attendanceStatus = latestRecord?.status || (isHoliday(employee.siteId, endDate, holidaysBySite) ? "Holiday" : "Absent");
     const gpsStatus = latestRecord && latestRecord.checkInLatitude && latestRecord.checkInLongitude ? "Verified" : "Pending";
     const faceStatus = latestRecord?.checkInFaceStatus
       ? latestRecord.checkInFaceStatus[0].toUpperCase() + latestRecord.checkInFaceStatus.slice(1)

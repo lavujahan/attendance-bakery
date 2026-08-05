@@ -82,6 +82,18 @@ export function deriveAttendanceStatus(
   }
 }
 
+// Admins enter a daily wage; this derives the internally-stored hourly rate from that
+// amount and the employee's own shift length, rounded to the nearest 10 (e.g. a
+// computed ₹44.4/hr becomes ₹40/hr). A zero/negative-length shift (end <= start) yields
+// 0 rather than dividing by zero -- the form's own validation should make this
+// unreachable, but this keeps the calculation safe regardless.
+export function calculateSalaryPerHour(salaryPerDay: number, dailyStartTime: string, dailyEndTime: string): number {
+  const shiftMinutes = calculateMinutesBetween(dailyStartTime, dailyEndTime);
+  if (!shiftMinutes) return 0;
+  const hourly = salaryPerDay / (shiftMinutes / 60);
+  return Math.round(hourly / 10) * 10;
+}
+
 export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const toRad = (value: number) => (value * Math.PI) / 180;
   const R = 6371000;

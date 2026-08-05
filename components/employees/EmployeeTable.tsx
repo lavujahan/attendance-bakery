@@ -140,10 +140,20 @@ export default function EmployeeTable() {
                 <p>Serial No: {employee.serialNo}</p>
                 <p>{employee.mobileNumber}</p>
                 <p>{employee.designation}</p>
-                <p>Salary/hr: {employee.salaryPerHour.toFixed(2)}</p>
+                <p>Salary/day: {employee.salaryPerDay.toFixed(2)}</p>
                 <p>Godown: {(employee.siteId && siteMap.get(employee.siteId)?.siteName) || "—"}</p>
                 <p>Start time: {employee.dailyStartTime?.slice(0, 5)}</p>
                 <p>End time: {employee.dailyEndTime?.slice(0, 5)}</p>
+                <p>
+                  ID Proof:{" "}
+                  {employee.idProofUrl ? (
+                    <a href={employee.idProofUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                      View
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </p>
               </div>
               <div className="mt-3">{faceBadge(employee)}</div>
               <div className="mt-4 flex gap-2">
@@ -180,10 +190,11 @@ export default function EmployeeTable() {
               <th className="p-3 text-left">Employee Name</th>
               <th className="p-3 text-left">Mobile</th>
               <th className="p-3 text-left">Designation</th>
-              <th className="p-3 text-left">Salary/hr</th>
+              <th className="p-3 text-left">Salary/day</th>
               <th className="p-3 text-left">Godown</th>
               <th className="p-3 text-left">Start Time</th>
               <th className="p-3 text-left">End Time</th>
+              <th className="p-3 text-center">ID Proof</th>
               <th className="p-3 text-center">Face</th>
               <th className="p-3 text-center">Status</th>
               <th className="p-3 text-center">Actions</th>
@@ -192,7 +203,7 @@ export default function EmployeeTable() {
           <tbody>
             {filteredEmployees.length === 0 ? (
               <tr>
-                <td colSpan={11} className="p-6 text-center text-gray-500">
+                <td colSpan={12} className="p-6 text-center text-gray-500">
                   No employees found.
                 </td>
               </tr>
@@ -203,10 +214,19 @@ export default function EmployeeTable() {
                   <td className="p-3 font-medium text-slate-900">{employee.employeeName}</td>
                   <td className="p-3">{employee.mobileNumber}</td>
                   <td className="p-3">{employee.designation}</td>
-                  <td className="p-3">{employee.salaryPerHour.toFixed(2)}</td>
+                  <td className="p-3">{employee.salaryPerDay.toFixed(2)}</td>
                   <td className="p-3">{(employee.siteId && siteMap.get(employee.siteId)?.siteName) || "—"}</td>
                   <td className="p-3">{employee.dailyStartTime?.slice(0, 5)}</td>
                   <td className="p-3">{employee.dailyEndTime?.slice(0, 5)}</td>
+                  <td className="p-3 text-center">
+                    {employee.idProofUrl ? (
+                      <a href={employee.idProofUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                        View
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="p-3 text-center">{faceBadge(employee)}</td>
                   <td className="p-3 text-center">
                     <span

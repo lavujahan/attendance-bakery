@@ -9,13 +9,17 @@ import { getTodayDate } from "@/lib/attendanceMath";
 import { deleteAttendance, subscribeAttendance, updateAttendance } from "@/services/attendance.service";
 import { subscribeEmployees } from "@/services/employee.service";
 import { subscribeSites } from "@/services/site.service";
+import { getHolidayDateSetsForRange } from "@/services/holiday.service";
 import type { AttendanceRecord, FaceStatus } from "@/types/attendance";
 import type { Employee } from "@/types/employee";
 import type { Site } from "@/types/site";
 import { isLateArrival, minutesLate, isEarlyLeaver, minutesEarly } from "@/lib/attendanceMath";
 
-type AttendanceDisplayStatus = "Present" | "Half Day" | "Absent" | "Working";
-type AttendanceEditStatus = AttendanceDisplayStatus;
+type AttendanceDisplayStatus = "Present" | "Half Day" | "Absent" | "Working" | "Holiday";
+// Holiday rows never carry a real attendance record (see `record: undefined` in the
+// absentRows synthesis below), so there's nothing to edit -- the edit dialog only
+// ever deals with the four persistable statuses.
+type AttendanceEditStatus = Exclude<AttendanceDisplayStatus, "Holiday">;
 
 interface AttendanceRow {
   id: string;
@@ -147,6 +151,8 @@ function getStatusBadgeClass(status: AttendanceDisplayStatus) {
       return "bg-amber-50 text-amber-700";
     case "Working":
       return "bg-sky-50 text-sky-700";
+    case "Holiday":
+      return "bg-violet-50 text-violet-700";
     case "Absent":
     default:
       return "bg-rose-50 text-rose-700";
@@ -179,6 +185,7 @@ export default function AttendanceManagementPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteRecordId, setDeleteRecordId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [holidaysBySite, setHolidaysBySite] = useState<Map<string, Set<string>>>(new Map());
 
   useEffect(() => {
     const unsubscribeAttendance = subscribeAttendance((next) => setAttendanceRecords(next));
@@ -191,6 +198,15 @@ export default function AttendanceManagementPage() {
       unsubscribeSites();
     };
   }, []);
+
+  useEffect(() => {
+    const siteIds = sites.map((site) => site.id).filter((id): id is string => Boolean(id));
+    if (siteIds.length === 0) return;
+
+    getHolidayDateSetsForRange(siteIds, selectedDate, selectedDate)
+      .then(setHolidaysBySite)
+      .catch(() => setHolidaysBySite(new Map()));
+  }, [selectedDate, sites]);
 
   const employeeMap = useMemo(() => {
     const map = new Map<string, Employee>();
@@ -255,6 +271,9 @@ export default function AttendanceManagementPage() {
       .filter((employee) => employee.id && !recordedEmployeeIds.has(employee.id))
       .map((employee) => {
         const site = employee.siteId ? siteMap.get(employee.siteId) : undefined;
+        const isOnHoliday = Boolean(site?.id && holidaysBySite.get(site.id)?.has(selectedDate));
+        const attendanceStatus: AttendanceDisplayStatus = isOnHoliday ? "Holiday" : "Absent";
+
         return {
           id: `absent-${employee.id}-${selectedDate}`,
           attendanceDate: selectedDate,
@@ -270,8 +289,8 @@ export default function AttendanceManagementPage() {
           checkInTime: undefined,
           checkOutTime: undefined,
           totalHours: "—",
-          attendanceStatus: "Absent" as AttendanceDisplayStatus,
-          remarks: "Not marked",
+          attendanceStatus,
+          remarks: isOnHoliday ? "Holiday" : "Not marked",
           isLate: false,
           minutesLate: null,
           isEarly: false,
@@ -282,7 +301,7 @@ export default function AttendanceManagementPage() {
       });
 
     return [...recordRows, ...absentRows];
-  }, [selectedDateRecords, employeeMap, siteMap, assignedEmployees, selectedDate]);
+  }, [selectedDateRecords, employeeMap, siteMap, assignedEmployees, selectedDate, holidaysBySite]);
 
   const filteredRows = useMemo(() => {
     return attendanceRows.filter((row) => {
@@ -305,7 +324,9 @@ export default function AttendanceManagementPage() {
     setEditingRecord(row);
     setEditCheckInTime(normalizeTimeInput(row.checkInTime) || "");
     setEditCheckOutTime(normalizeTimeInput(row.checkOutTime) || "");
-    setEditAttendanceStatus(row.attendanceStatus === "Working" ? "Present" : row.attendanceStatus);
+    setEditAttendanceStatus(
+      row.attendanceStatus === "Working" || row.attendanceStatus === "Holiday" ? "Present" : row.attendanceStatus
+    );
     setEditRemarks(row.record?.remarks ?? "");
   };
 
@@ -415,6 +436,7 @@ export default function AttendanceManagementPage() {
               <option value="Half Day">Half Day</option>
               <option value="Absent">Absent</option>
               <option value="Working">Working</option>
+              <option value="Holiday">Holiday</option>
             </select>
           </label>
         </div>
