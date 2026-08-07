@@ -108,15 +108,18 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
         const uploadResult = await uploadEmployeeIdProof(idProofFile.name, idProofFile.type, base64Data);
 
         if ("error" in uploadResult) {
+          console.log("[EmployeeForm] ID proof upload failed:", uploadResult.error);
           toast.error(
             `Employee will be saved without the ID proof — upload failed: ${uploadResult.error}. You can attach it later by editing this employee.`
           );
         } else {
           idProofUrl = uploadResult.url;
+          console.log("[EmployeeForm] ID proof upload succeeded, idProofUrl set to:", idProofUrl);
         }
       }
 
       const payload: EmployeeFormData = { ...data, idProofUrl };
+      console.log("[EmployeeForm] payload.idProofUrl before save:", payload.idProofUrl);
 
       try {
         if (employee?.id) {
