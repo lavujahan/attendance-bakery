@@ -2,11 +2,6 @@
 
 import { uploadIdProof } from "@/lib/googleDrive/client";
 
-// Raises this action's own execution ceiling so the hosting platform doesn't kill it
-// before lib/googleDrive/client.ts's 45s client-side timeout ever gets a chance to fire.
-// Confirm the hosting plan actually hi  honors this value (e.g. Vercel Hobby caps lower).
-export const maxDuration = 60;
-
 export async function uploadEmployeeIdProof(
   fileName: string,
   mimeType: string,
