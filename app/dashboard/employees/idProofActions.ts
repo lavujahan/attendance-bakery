@@ -6,12 +6,12 @@ export async function uploadEmployeeIdProof(
   fileName: string,
   mimeType: string,
   base64Data: string
-): Promise<{ url: string } | { error: string }> {
+): Promise<{ url: string; shared: boolean; shareError?: string } | { error: string }> {
   const result = await uploadIdProof(fileName, mimeType, base64Data);
 
   if (!result.ok) {
     return { error: result.detail };
   }
 
-  return { url: result.url };
+  return { url: result.url, shared: result.shared, shareError: result.shareError };
 }

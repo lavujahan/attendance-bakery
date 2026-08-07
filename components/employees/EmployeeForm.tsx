@@ -41,10 +41,27 @@ interface Props {
   onSuccess: (employeeId?: string, employeeName?: string) => void;
 }
 
+// The upload runs when the admin picks the file, not on submit: Apps Script writes the
+// file to Drive and only *then* responds, so a client-side abort (45s timeout, stale
+// deployment URL) used to leave the file in Drive while the employee saved with a null
+// id_proof_url -- an orphan with no way to recover the link. Resolving the URL before
+// submit means a slow Drive call can no longer cost us the link, and the admin sees the
+// failure in time to retry instead of discovering it later in the table.
+type IdProofUpload =
+  | { status: "idle" }
+  | { status: "uploading"; fileName: string }
+  // `shared: false` means the file uploaded but Drive refused to make it
+  // link-viewable -- still a success, so the URL is kept and saved.
+  | { status: "done"; fileName: string; shared: boolean }
+  | { status: "error"; fileName: string; error: string };
+
 export default function EmployeeForm({ employee, onSuccess }: Props) {
   const [loading, setLoading] = useState(false);
   const [sites, setSites] = useState<Site[]>([]);
-  const [idProofFile, setIdProofFile] = useState<File | null>(null);
+  const [idProofUrl, setIdProofUrl] = useState(employee?.idProofUrl);
+  const [idProofUpload, setIdProofUpload] = useState<IdProofUpload>({ status: "idle" });
+  // Kept only so "Retry upload" can re-send without making the admin re-pick the file.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   useEffect(() => {
     const unsubscribe = subscribeSites((next) => setSites(next));
@@ -73,6 +90,32 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
     },
   });
 
+  async function uploadIdProofFile(file: File) {
+    setPendingFile(file);
+    setIdProofUpload({ status: "uploading", fileName: file.name });
+
+    try {
+      const base64Data = await readFileAsBase64(file);
+      const result = await uploadEmployeeIdProof(file.name, file.type, base64Data);
+
+      if ("error" in result) {
+        setIdProofUpload({ status: "error", fileName: file.name, error: result.error });
+        return;
+      }
+
+      setIdProofUrl(result.url);
+      setIdProofUpload({ status: "done", fileName: file.name, shared: result.shared });
+    } catch (error) {
+      // uploadEmployeeIdProof never throws (it resolves to a typed { url } | { error }),
+      // so reaching here means readFileAsBase64 rejected -- i.e. a FileReader error.
+      setIdProofUpload({
+        status: "error",
+        fileName: file.name,
+        error: error instanceof Error ? error.message : "could not read the selected file",
+      });
+    }
+  }
+
   function handleIdProofChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = ""; // allow re-selecting the same file after an error
@@ -88,77 +131,59 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
       return;
     }
 
-    setIdProofFile(file);
+    void uploadIdProofFile(file);
+  }
+
+  function retryIdProofUpload() {
+    if (pendingFile) void uploadIdProofFile(pendingFile);
+  }
+
+  function resetIdProofUpload() {
+    setIdProofUpload({ status: "idle" });
+    setPendingFile(null);
   }
 
   async function onSubmit(data: EmployeeFormData) {
     try {
       setLoading(true);
 
-      // A Drive hiccup (Apps Script cold start, network blip, timeout) must never block
-      // saving the employee -- idProofUrl is optional at every layer (DB column is
-      // nullable, schema has no required check), so on failure we keep whatever the
-      // employee already had and let the admin re-attach it later via edit. Note: even a
-      // *timed-out* upload can still have written the file to Drive server-side (Apps
-      // Script responds only after finishing the write), so treating this as fatal used to
-      // both lose the employee record and orphan an already-uploaded file.
-      let idProofUrl = employee?.idProofUrl;
-      if (idProofFile) {
-        const base64Data = await readFileAsBase64(idProofFile);
-        const uploadResult = await uploadEmployeeIdProof(idProofFile.name, idProofFile.type, base64Data);
-
-        if ("error" in uploadResult) {
-          console.log("[EmployeeForm] ID proof upload failed:", uploadResult.error);
-          toast.error(
-            `Employee will be saved without the ID proof — upload failed: ${uploadResult.error}. You can attach it later by editing this employee.`
-          );
-        } else {
-          idProofUrl = uploadResult.url;
-          console.log("[EmployeeForm] ID proof upload succeeded, idProofUrl set to:", idProofUrl);
-        }
-      }
-
+      // idProofUrl is already resolved by uploadIdProofFile (or still holds whatever the
+      // employee had). It stays optional at every layer -- nullable DB column, no required
+      // check in the schema -- so a failed upload saves the employee without it rather
+      // than blocking the record.
       const payload: EmployeeFormData = { ...data, idProofUrl };
-      console.log("[EmployeeForm] payload.idProofUrl before save:", payload.idProofUrl);
 
-      try {
-        if (employee?.id) {
-          await updateEmployee(employee.id, payload);
-          toast.success("Employee Updated Successfully");
+      if (employee?.id) {
+        await updateEmployee(employee.id, payload);
+        toast.success("Employee Updated Successfully");
 
-          if (data.status === "Inactive" && employee.status !== "Inactive") {
-            // Best-effort cleanup: don't let a face-service hiccup block the status update.
-            resetEmployeeFaceEnrollment(employee.id).catch((error) => {
-              console.error("Failed to clear face enrollment for deactivated employee", error);
-            });
-          }
-
-          reset();
-          setIdProofFile(null);
-          onSuccess(employee.id, data.employeeName);
-        } else {
-          const created = await addEmployee(payload);
-          toast.success("Employee Added Successfully");
-          reset();
-          setIdProofFile(null);
-          onSuccess(created.id, created.employeeName);
+        if (data.status === "Inactive" && employee.status !== "Inactive") {
+          // Best-effort cleanup: don't let a face-service hiccup block the status update.
+          resetEmployeeFaceEnrollment(employee.id).catch((error) => {
+            console.error("Failed to clear face enrollment for deactivated employee", error);
+          });
         }
-      } catch (error) {
-        const supabaseError = error as { code?: string; details?: string; hint?: string };
-        console.error("Failed to save employee", {
-          error,
-          code: supabaseError?.code,
-          details: supabaseError?.details,
-          hint: supabaseError?.hint,
-        });
-        toast.error(`Failed to save employee: ${error instanceof Error ? error.message : "Something went wrong"}`);
+
+        reset();
+        resetIdProofUpload();
+        onSuccess(employee.id, data.employeeName);
+      } else {
+        const created = await addEmployee(payload);
+        toast.success("Employee Added Successfully");
+        reset();
+        setIdProofUrl(undefined);
+        resetIdProofUpload();
+        onSuccess(created.id, created.employeeName);
       }
     } catch (error) {
-      // Reaching here means reading the picked file itself failed (e.g. a FileReader
-      // error) -- uploadEmployeeIdProof never throws, it always resolves to a typed
-      // { url } | { error } result, so this can't be an upload-service failure.
-      console.error("Failed to read ID proof file", error);
-      toast.error(error instanceof Error ? error.message : "Something went wrong");
+      const supabaseError = error as { code?: string; details?: string; hint?: string };
+      console.error("Failed to save employee", {
+        error,
+        code: supabaseError?.code,
+        details: supabaseError?.details,
+        hint: supabaseError?.hint,
+      });
+      toast.error(`Failed to save employee: ${error instanceof Error ? error.message : "Something went wrong"}`);
     } finally {
       setLoading(false);
     }
@@ -293,21 +318,69 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
 
       <div className="space-y-2">
         <Label>ID Proof (PDF)</Label>
-        {employee?.idProofUrl && !idProofFile && (
+
+        {idProofUpload.status === "idle" && idProofUrl && (
           <p className="text-sm text-slate-600">
-            <a href={employee.idProofUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+            <a href={idProofUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
               View current ID proof
             </a>{" "}
             — choose a file below to replace it.
           </p>
         )}
-        {idProofFile && <p className="text-sm text-slate-600">Selected: {idProofFile.name}</p>}
-        <Input type="file" accept="application/pdf" onChange={handleIdProofChange} />
+
+        {idProofUpload.status === "uploading" && (
+          <p className="text-sm text-slate-600">
+            Uploading {idProofUpload.fileName} to Drive… this can take up to 45 seconds on a cold start.
+          </p>
+        )}
+
+        {idProofUpload.status === "done" && idProofUrl && (
+          <div className="space-y-1">
+            <p className="text-sm text-emerald-700">
+              Uploaded {idProofUpload.fileName} —{" "}
+              <a href={idProofUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                View
+              </a>
+            </p>
+            {!idProofUpload.shared && (
+              <p className="text-xs text-amber-700">
+                Drive would not set link sharing on this file, so only people who can already access the
+                ID proof folder will be able to open it. The link is saved either way.
+              </p>
+            )}
+          </div>
+        )}
+
+        {idProofUpload.status === "error" && (
+          <div className="space-y-2">
+            <p className="text-sm text-red-600">Upload failed: {idProofUpload.error}</p>
+            <Button type="button" variant="outline" size="sm" onClick={retryIdProofUpload}>
+              Retry upload
+            </Button>
+            <p className="text-xs text-slate-500">
+              You can still save without the ID proof and attach it later by editing this employee.
+            </p>
+          </div>
+        )}
+
+        <Input
+          type="file"
+          accept="application/pdf"
+          onChange={handleIdProofChange}
+          disabled={idProofUpload.status === "uploading"}
+        />
         <p className="text-xs text-slate-500">Optional. PDF only, up to 5MB.</p>
       </div>
 
       <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
-        <Button type="submit" disabled={loading} className="w-full sm:w-auto">
+        {/* Blocked while uploading so a save can't race an in-flight upload and store a
+            stale null. On failure the button stays enabled -- saving without the ID proof
+            is a deliberate choice the admin can see, not a silent fallback. */}
+        <Button
+          type="submit"
+          disabled={loading || idProofUpload.status === "uploading"}
+          className="w-full sm:w-auto"
+        >
           {loading ? "Saving..." : employee ? "Update Employee" : "Save Employee"}
         </Button>
       </div>

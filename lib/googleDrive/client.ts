@@ -3,11 +3,10 @@ import "server-only";
 // Server-only client for the Google Apps Script web app that uploads employee ID proof
 // PDFs to Drive (see google-apps-script/upload-id-proof.gs -- deployed outside this
 // repo, in the admin's own Google account). Mirrors lib/faceService/client.ts's
-// server-only guard and typed-result-instead-of-throw shape: GOOGLE_DRIVE_UPLOAD_SECRET
-// must never reach the browser bundle, so only import this from Server Actions.
+// server-only guard and typed-result-instead-of-throw shape: the deployment URL stays
+// out of the browser bundle, so only import this from Server Actions.
 
-const GOOGLE_DRIVE_UPLOAD_URL = process.env.GOOGLE_DRIVE_UPLOAD_URL!;
-const GOOGLE_DRIVE_UPLOAD_SECRET = process.env.GOOGLE_DRIVE_UPLOAD_SECRET!;
+const GOOGLE_DRIVE_UPLOAD_URL = process.env.GOOGLE_DRIVE_UPLOAD_URL;
 
 // Apps Script cold starts + Drive write can be slow. 20s was too tight in practice: the
 // client would abort and report "upload failed" while Apps Script kept running server-side
@@ -20,11 +19,25 @@ const TIMEOUT_MS = 45_000;
 interface UploadRawResponse {
   url?: string;
   error?: string;
+  shared?: boolean;
+  shareError?: string | null;
 }
 
-export type UploadResult = { ok: true; url: string } | { ok: false; detail: string };
+// `shared` reports whether the file could be set to "anyone with the link can view".
+// A false value is not an upload failure -- the file is in Drive and the URL is valid,
+// it's just only reachable by people who can already see the folder.
+export type UploadResult =
+  | { ok: true; url: string; shared: boolean; shareError?: string }
+  | { ok: false; detail: string };
 
 export async function uploadIdProof(fileName: string, mimeType: string, base64Data: string): Promise<UploadResult> {
+  // Checked explicitly rather than asserted non-null: without this, fetch(undefined)
+  // throws into the catch below and surfaces as "upload service unreachable: Failed to
+  // parse URL", disguising a missing-config error as a network error.
+  if (!GOOGLE_DRIVE_UPLOAD_URL) {
+    return { ok: false, detail: "GOOGLE_DRIVE_UPLOAD_URL is not set" };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -32,7 +45,7 @@ export async function uploadIdProof(fileName: string, mimeType: string, base64Da
     const response = await fetch(GOOGLE_DRIVE_UPLOAD_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secret: GOOGLE_DRIVE_UPLOAD_SECRET, fileName, mimeType, base64Data }),
+      body: JSON.stringify({ fileName, mimeType, base64Data }),
       signal: controller.signal,
     });
 
@@ -53,7 +66,15 @@ export async function uploadIdProof(fileName: string, mimeType: string, base64Da
       return { ok: false, detail: `unexpected upload service response: ${JSON.stringify(body)}` };
     }
 
-    return { ok: true, url: body.url };
+    // `shared` is absent on older deployments of the Apps Script, which threw on a failed
+    // setSharing instead of reporting it -- so a URL from those always meant sharing
+    // worked. Only an explicit false means "uploaded but not shared".
+    return {
+      ok: true,
+      url: body.url,
+      shared: body.shared !== false,
+      shareError: body.shareError ?? undefined,
+    };
   } catch (error) {
     const detail =
       error instanceof Error && error.name === "AbortError"
