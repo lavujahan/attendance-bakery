@@ -101,7 +101,11 @@ export interface ExportReportPayload {
   rows: Array<Record<string, string | number | boolean | null | undefined>>;
   headers: string[];
   reportType: string;
-  filters: DashboardFilters;
+  // Loosely typed (only ever JSON.stringify'd for display in the PDF header) so callers
+  // outside the attendance dashboard -- e.g. salary reports -- can reuse this without
+  // fabricating a fake DashboardFilters object. `object` (not Record<string, unknown>) so
+  // closed interfaces like DashboardFilters, which have no index signature, still satisfy it.
+  filters: object;
 }
 
 export function toLocalDateInput(date: Date) {

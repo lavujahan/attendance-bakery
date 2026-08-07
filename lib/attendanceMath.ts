@@ -108,8 +108,9 @@ export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2
 
 // Late/early both get a 10-minute grace window before they're flagged -- once flagged,
 // the reported minutes are still the real gap from the scheduled time, not the gap
-// minus the grace period.
-const GRACE_MINUTES = 10;
+// minus the grace period. Exported so lib/payrollMath.ts derives its deduction math from
+// the same constant instead of redefining it and risking the two windows drifting apart.
+export const GRACE_MINUTES = 10;
 
 // Late is per-employee now (employees.daily_start_time), not a hardcoded 9:00 cutoff.
 export function isLateArrival(checkInTime: string | undefined, dailyStartTime: string): boolean {

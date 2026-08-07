@@ -1,5 +1,6 @@
 export type AttendanceStatus = "Checked In" | "Completed" | "Absent";
 export type FaceStatus = "verified" | "unverified" | "service_error";
+export type SalaryVerificationStatus = "Draft" | "Verified" | "Frozen";
 
 export interface AttendanceRecord {
   id?: string;
@@ -25,6 +26,12 @@ export interface AttendanceRecord {
   checkOutFaceConfidence?: number;
   status: AttendanceStatus;
   remarks?: string;
+  salaryVerificationStatus: SalaryVerificationStatus;
+  isPendingCorrection: boolean;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  frozenAt?: string;
+  frozenBy?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }

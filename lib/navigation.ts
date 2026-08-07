@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   FileBarChart2,
   Settings,
+  Wallet,
 } from "lucide-react";
 
 export const navigation = [
@@ -14,6 +15,7 @@ export const navigation = [
   { title: "Holidays", href: "/dashboard/holidays", icon: CalendarDays },
   { title: "Employees", href: "/dashboard/employees", icon: Users },
   { title: "Attendance Management", href: "/dashboard/attendance-management", icon: ClipboardCheck },
+  { title: "Salary", href: "/dashboard/salary", icon: Wallet },
   { title: "Reports", href: "/dashboard/reports", icon: FileBarChart2 },
   { title: "Settings", href: "/dashboard/settings", icon: Settings },
 ];

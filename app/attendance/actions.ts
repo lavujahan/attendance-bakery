@@ -104,6 +104,12 @@ function mapAttendanceRow(row: {
   check_out_face_confidence: number | null;
   status: AttendanceRecord["status"];
   remarks: string | null;
+  salary_verification_status: AttendanceRecord["salaryVerificationStatus"];
+  is_pending_correction: boolean;
+  verified_at: string | null;
+  verified_by: string | null;
+  frozen_at: string | null;
+  frozen_by: string | null;
   created_at: string;
   updated_at: string;
 }): AttendanceRecord {
@@ -131,6 +137,12 @@ function mapAttendanceRow(row: {
     checkOutFaceConfidence: row.check_out_face_confidence ?? undefined,
     status: row.status,
     remarks: row.remarks ?? undefined,
+    salaryVerificationStatus: row.salary_verification_status,
+    isPendingCorrection: row.is_pending_correction,
+    verifiedAt: row.verified_at ?? undefined,
+    verifiedBy: row.verified_by ?? undefined,
+    frozenAt: row.frozen_at ?? undefined,
+    frozenBy: row.frozen_by ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
