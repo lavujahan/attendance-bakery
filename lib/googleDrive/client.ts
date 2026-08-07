@@ -9,7 +9,13 @@ import "server-only";
 const GOOGLE_DRIVE_UPLOAD_URL = process.env.GOOGLE_DRIVE_UPLOAD_URL!;
 const GOOGLE_DRIVE_UPLOAD_SECRET = process.env.GOOGLE_DRIVE_UPLOAD_SECRET!;
 
-const TIMEOUT_MS = 20_000; // Apps Script cold starts + Drive write can be slow
+// Apps Script cold starts + Drive write can be slow. 20s was too tight in practice: the
+// client would abort and report "upload failed" while Apps Script kept running server-side
+// and finished writing the file to Drive anyway (it only responds *after* the write
+// completes), producing an orphaned Drive file plus a false failure. 45s cuts that race
+// down significantly; EmployeeForm no longer treats an upload failure as fatal to the
+// employee save either way, so this is a mitigation, not the sole fix.
+const TIMEOUT_MS = 45_000;
 
 interface UploadRawResponse {
   url?: string;

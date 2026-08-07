@@ -95,44 +95,66 @@ export default function EmployeeForm({ employee, onSuccess }: Props) {
     try {
       setLoading(true);
 
+      // A Drive hiccup (Apps Script cold start, network blip, timeout) must never block
+      // saving the employee -- idProofUrl is optional at every layer (DB column is
+      // nullable, schema has no required check), so on failure we keep whatever the
+      // employee already had and let the admin re-attach it later via edit. Note: even a
+      // *timed-out* upload can still have written the file to Drive server-side (Apps
+      // Script responds only after finishing the write), so treating this as fatal used to
+      // both lose the employee record and orphan an already-uploaded file.
       let idProofUrl = employee?.idProofUrl;
       if (idProofFile) {
         const base64Data = await readFileAsBase64(idProofFile);
         const uploadResult = await uploadEmployeeIdProof(idProofFile.name, idProofFile.type, base64Data);
 
         if ("error" in uploadResult) {
-          toast.error(`Failed to upload ID proof: ${uploadResult.error}`);
-          setLoading(false);
-          return;
+          toast.error(
+            `Employee will be saved without the ID proof — upload failed: ${uploadResult.error}. You can attach it later by editing this employee.`
+          );
+        } else {
+          idProofUrl = uploadResult.url;
         }
-        idProofUrl = uploadResult.url;
       }
 
       const payload: EmployeeFormData = { ...data, idProofUrl };
 
-      if (employee?.id) {
-        await updateEmployee(employee.id, payload);
-        toast.success("Employee Updated Successfully");
+      try {
+        if (employee?.id) {
+          await updateEmployee(employee.id, payload);
+          toast.success("Employee Updated Successfully");
 
-        if (data.status === "Inactive" && employee.status !== "Inactive") {
-          // Best-effort cleanup: don't let a face-service hiccup block the status update.
-          resetEmployeeFaceEnrollment(employee.id).catch((error) => {
-            console.error("Failed to clear face enrollment for deactivated employee", error);
-          });
+          if (data.status === "Inactive" && employee.status !== "Inactive") {
+            // Best-effort cleanup: don't let a face-service hiccup block the status update.
+            resetEmployeeFaceEnrollment(employee.id).catch((error) => {
+              console.error("Failed to clear face enrollment for deactivated employee", error);
+            });
+          }
+
+          reset();
+          setIdProofFile(null);
+          onSuccess(employee.id, data.employeeName);
+        } else {
+          const created = await addEmployee(payload);
+          toast.success("Employee Added Successfully");
+          reset();
+          setIdProofFile(null);
+          onSuccess(created.id, created.employeeName);
         }
-
-        reset();
-        setIdProofFile(null);
-        onSuccess(employee.id, data.employeeName);
-      } else {
-        const created = await addEmployee(payload);
-        toast.success("Employee Added Successfully");
-        reset();
-        setIdProofFile(null);
-        onSuccess(created.id, created.employeeName);
+      } catch (error) {
+        const supabaseError = error as { code?: string; details?: string; hint?: string };
+        console.error("Failed to save employee", {
+          error,
+          code: supabaseError?.code,
+          details: supabaseError?.details,
+          hint: supabaseError?.hint,
+        });
+        toast.error(`Failed to save employee: ${error instanceof Error ? error.message : "Something went wrong"}`);
       }
     } catch (error) {
-      console.error(error);
+      // Reaching here means reading the picked file itself failed (e.g. a FileReader
+      // error) -- uploadEmployeeIdProof never throws, it always resolves to a typed
+      // { url } | { error } result, so this can't be an upload-service failure.
+      console.error("Failed to read ID proof file", error);
       toast.error(error instanceof Error ? error.message : "Something went wrong");
     } finally {
       setLoading(false);
